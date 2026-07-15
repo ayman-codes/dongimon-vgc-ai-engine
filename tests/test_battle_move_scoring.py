@@ -68,6 +68,7 @@ def _make_mock_move_const(name="Tackle", bp=40, cat=Category.PHYSICAL, acc=1.0, 
     mock.toggle_trickroom = False
     mock.toggle_reflect = False
     mock.toggle_lightscreen = False
+    mock.priority = 0
     return mock
 
 
@@ -245,12 +246,12 @@ class TestSwitchAction:
         assert score == -float("inf")
 
     def test_no_opponents_returns_baseline(self, params, mock_state):
-        """Switch with no opponents returns baseline score."""
+        """Switch with no opponents returns baseline (avg_move_score * 0.5 = 25.0)."""
         current = _make_mock_pkm("Current")
         reserve = _make_mock_pkm("Reserve", hp=200)
 
-        score = score_switch_action(current, reserve, [], mock_state, params)
-        assert score == 50.0
+        score = score_switch_action(current, reserve, [], mock_state, params, avg_move_score=50.0)
+        assert score == 25.0
 
     def test_defensive_pivot_bonus(self, params, mock_state):
         """Switching to a Pokemon that resists opponent STABs gets bonus."""

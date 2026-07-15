@@ -72,6 +72,17 @@ def evaluate_joint_actions(
         my_pkm_b, opp_active_list, state, params
     )
 
+    raw_a: list[float] = []
+    raw_b: list[float] = []
+    raw_s1: list[float] = []
+    raw_s2: list[float] = []
+    raw_ff: list[float] = []
+    raw_tp: list[float] = []
+    raw_od: list[float] = []
+    raw_su: list[float] = []
+    raw_ev: list[float] = []
+    pair_info: list[tuple] = []
+
     for cmd_a_info in actions_slot_a:
         cmd_a, score_a, is_ko_a = cmd_a_info
         is_move_a = cmd_a[0] >= 0
@@ -88,63 +99,99 @@ def evaluate_joint_actions(
             if is_move_b and cmd_b[0] < len(my_pkm_b.battling_moves):
                 move_b_const = my_pkm_b.battling_moves[cmd_b[0]].constants
 
-            raw_surv_a = _survival_impact(
+            sv_a = _survival_impact(
                 my_pkm_a, threat_a_undefended, is_move_a, move_a_const,
                 is_ko_b, move_b_const, cmd_b_target, biggest_threat_pkm,
                 biggest_threat_slot, max_score,
             )
-            raw_surv_b = _survival_impact_b(
+            sv_b = _survival_impact_b(
                 my_pkm_b, opp_active_list, is_ko_a, move_a_const, cmd_a_target,
                 is_move_b, move_b_const, threat_b_undefended, pkm_b_ko_by_threat,
                 biggest_threat_pkm, biggest_threat_slot, max_score, state, params,
             )
 
-            raw_ff = _focus_fire_wrapper(
+            ff = _focus_fire_wrapper(
                 my_pkm_a, move_a_const, is_ko_a,
                 my_pkm_b, move_b_const, is_ko_b,
                 cmd_a_target, cmd_b_target, is_move_a, is_move_b,
                 opp_active_list, state, params, biggest_threat_pkm,
             )
 
-            raw_tp = _target_priority(
+            tp = _target_priority(
                 is_ko_a, is_ko_b, move_a_const, move_b_const,
                 cmd_a_target, cmd_b_target, is_move_a, is_move_b,
                 biggest_threat_pkm, biggest_threat_slot,
                 my_active_list, state, params,
             )
 
-            raw_off_def = _off_def_support(
+            od = _off_def_support(
                 is_move_a, move_a_const, score_a,
                 is_move_b, move_b_const, score_b,
                 pkm_a_ko_by_threat, pkm_b_ko_by_threat,
             )
 
-            raw_setup = _setup_synergy(
+            su = _setup_synergy(
                 is_move_a, move_a_const, score_a, is_ko_a,
                 is_move_b, move_b_const, score_b, is_ko_b,
             )
 
-            raw_env = _env_synergy(
+            ev = _env_synergy(
                 is_move_a, move_a_const, is_move_b, move_b_const,
                 my_pkm_a, my_pkm_b, state,
             )
 
-            joint = (
-                score_a * weights.get("w_base_score_a", 0.05)
-                + score_b * weights.get("w_base_score_b", 0.15)
-                + (raw_surv_a + raw_surv_b) * weights.get("w_survival_impact", 0.13)
-                + raw_ff * weights.get("w_focus_fire", 0.27)
-                + raw_tp * weights.get("w_target_priority", 0.18)
-                + raw_off_def * weights.get("w_off_def_support", 0.02)
-                + raw_setup * weights.get("w_setup_synergy", 0.18)
-                + raw_env * weights.get("w_env_synergy", 0.02)
-            )
+            raw_a.append(score_a)
+            raw_b.append(score_b)
+            raw_s1.append(sv_a)
+            raw_s2.append(sv_b)
+            raw_ff.append(ff)
+            raw_tp.append(tp)
+            raw_od.append(od)
+            raw_su.append(su)
+            raw_ev.append(ev)
+            pair_info.append((cmd_a, cmd_b, is_ko_a, is_ko_b))
 
-            if joint > best_joint:
-                best_joint = joint
-                chosen_pair = (cmd_a, cmd_b)
-                log_a = {"command": cmd_a, "score": score_a, "is_ko": is_ko_a}
-                log_b = {"command": cmd_b, "score": score_b, "is_ko": is_ko_b}
+    comp_max = {
+        "a": max(raw_a) if raw_a else 1.0,
+        "b": max(raw_b) if raw_b else 1.0,
+        "s": max(abs(v) for v in raw_s1 + raw_s2) if raw_s1 or raw_s2 else 1.0,
+        "ff": max(raw_ff) if raw_ff else 1.0,
+        "tp": max(raw_tp) if raw_tp else 1.0,
+        "od": max(raw_od) if raw_od else 1.0,
+        "su": max(raw_su) if raw_su else 1.0,
+        "ev": max(raw_ev) if raw_ev else 1.0,
+    }
+
+    def _div(v: float, m: float) -> float:
+        return v / m if m > 0 else 0.0
+
+    for idx, (cmd_a, cmd_b, is_ko_a, is_ko_b) in enumerate(pair_info):
+        n_a = _div(raw_a[idx], comp_max["a"])
+        n_b = _div(raw_b[idx], comp_max["b"])
+        n_s1 = _div(raw_s1[idx], comp_max["s"])
+        n_s2 = _div(raw_s2[idx], comp_max["s"])
+        n_ff = _div(raw_ff[idx], comp_max["ff"])
+        n_tp = _div(raw_tp[idx], comp_max["tp"])
+        n_od = _div(raw_od[idx], comp_max["od"])
+        n_su = _div(raw_su[idx], comp_max["su"])
+        n_ev = _div(raw_ev[idx], comp_max["ev"])
+
+        joint = (
+            n_a * weights.get("w_base_score_a", 0.05)
+            + n_b * weights.get("w_base_score_b", 0.15)
+            + (n_s1 + n_s2) * weights.get("w_survival_impact", 0.13)
+            + n_ff * weights.get("w_focus_fire", 0.27)
+            + n_tp * weights.get("w_target_priority", 0.18)
+            + n_od * weights.get("w_off_def_support", 0.02)
+            + n_su * weights.get("w_setup_synergy", 0.18)
+            + n_ev * weights.get("w_env_synergy", 0.02)
+        )
+
+        if joint > best_joint:
+            best_joint = joint
+            chosen_pair = (cmd_a, cmd_b)
+            log_a = {"command": cmd_a, "score": raw_a[idx], "is_ko": is_ko_a}
+            log_b = {"command": cmd_b, "score": raw_b[idx], "is_ko": is_ko_b}
 
     return list(chosen_pair), log_a, log_b, best_joint
 

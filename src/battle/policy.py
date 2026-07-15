@@ -120,11 +120,17 @@ class DongimonBattlePolicy(BattlePolicy):
                             )
 
             if my_team_view.reserve:
+                move_nums = []
+                for act in actions_per_slot[original_slot]:
+                    if act[0][0] >= 0:
+                        _, sc, _ = act
+                        move_nums.append(sc)
+                avg_move = sum(move_nums) / max(len(move_nums), 1)
                 for reserve_idx, reserve_pkm in enumerate(my_team_view.reserve):
                     if reserve_pkm is None or reserve_pkm.hp <= 0:
                         continue
                     opps = state.sides[1].team.active if state.sides[1].team.active else []
-                    score = score_switch_action(my_pkm, reserve_pkm, opps, state, self.params)
+                    score = score_switch_action(my_pkm, reserve_pkm, opps, state, self.params, avg_move)
                     actions_per_slot[original_slot].append(((-1, reserve_idx), score, False))
 
             if not actions_per_slot[original_slot] and my_pkm.hp > 0:

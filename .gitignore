@@ -1,10 +1,20 @@
-context/*
-context/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Tool caches
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-.vscode/
-competitor.py
-my_battle_policy.py
-selection_policy.py
-TeamBuildPolicy.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+competitors/
+context/

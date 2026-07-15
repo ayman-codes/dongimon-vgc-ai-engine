@@ -1,7 +1,7 @@
 """Benchmark Dongimon against championship competitors and baseline.
 
 Runs 10-battle matches between Dongimon and each opponent.
-Reports win/loss for every pairing.
+Reports per-matchup and aggregate win rates.
 """
 
 import sys
@@ -67,25 +67,41 @@ def main():
         elapsed = time.perf_counter() - start
         wins = match.wins
         d_wins, o_wins = wins[0], wins[1]
+        total = d_wins + o_wins
         results[opp_name] = (d_wins, o_wins)
-        print(f"Dongimon {d_wins} — {opp_name} {o_wins}  ({elapsed:.1f}s)")
+        print(f"done  ({elapsed:.1f}s)")
 
     print("\n" + "=" * 60)
-    print("Summary")
+    print("Results")
     print("=" * 60)
-    print(f"{'Opponent':<20} {'Dongimon':>10} {'Opponent':>10}")
-    print("-" * 42)
+    total_d = 0
+    total_o = 0
     for opp_name, (dw, ow) in results.items():
-        print(f"{opp_name:<20} {dw:>10} {ow:>10}")
-    total_d = sum(r[0] for r in results.values())
-    total_o = sum(r[1] for r in results.values())
-    print("-" * 42)
-    print(f"{'TOTAL':<20} {total_d:>10} {total_o:>10}")
+        total = dw + ow
+        d_pct = dw / total * 100 if total else 0.0
+        o_pct = ow / total * 100 if total else 0.0
+        winner = "Dongimon" if dw > ow else opp_name
+        print(f"  vs {opp_name:<12}  Winner: {winner:>12} ({d_pct:5.1f}% Dongimon vs {o_pct:5.1f}%)")
+        total_d += dw
+        total_o += ow
+
+    gt = total_d + total_o
+    if gt > 0:
+        pct = total_d / gt * 100
+        print(f"\n  ALL-TIME: Dongimon {total_d} wins — Opponents {total_o} wins ({pct:.1f}% aggregate)")
+    print("=" * 60)
 
 
 def _import_competitor(module_path: str, class_name: str):
-    """Dynamically import a competitor class, returning a factory callable."""
+    """Dynamically import a competitor class, returning a factory callable.
 
+    Args:
+        module_path: Dot-separated module path.
+        class_name: Name of the competitor class.
+
+    Returns:
+        Callable that creates a new instance of the competitor.
+    """
     import importlib
     mod = importlib.import_module(module_path)
     cls = getattr(mod, class_name)

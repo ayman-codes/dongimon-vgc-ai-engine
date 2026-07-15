@@ -8,13 +8,13 @@ selection, and roster-viability-based team building.
 
 ```bash
 # Install dependencies
-pip install -e "C:\Users\Mohammed Ayman PC\pokemon-vgc-engine"
+pip install -e "C:\Users\[username]\pokemon-vgc-engine"
 uv sync --dev
 
 # Run tests
 uv run pytest tests/ -v
 
-# Run a competition smoke test (requires local Showdown server)
+# Run a competition smoke test 
 uv run python scripts/run_competition.py
 ```
 

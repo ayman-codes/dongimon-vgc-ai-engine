@@ -133,6 +133,16 @@ def score_offensive_move(
     if not is_ko_potential and move_const.max_pp > 0 and (move.pp / move_const.max_pp) < 0.3 and action_score < 400:
         action_score *= 0.8
 
+    pivot_names = {"u-turn", "volt switch", "flip turn", "parting shot"}
+    if move_const.name.lower() in pivot_names:
+        reserve_list = [p for p in state.sides[0].team.reserve if p and p.hp > 0]
+        if reserve_list:
+            best_switch_val = max(
+                score_switch_action(attacker, reserve_pkm, [target_pokemon], state, params)
+                for reserve_pkm in reserve_list
+            )
+            action_score += best_switch_val
+
     return max(0, action_score), is_ko_potential
 
 
@@ -200,6 +210,7 @@ def score_switch_action(
     opponent_actives: list,
     state: StateView,
     params: BattleRuleParam,
+    avg_move_score: float = 50.0,
 ) -> float:
     """Score switching the current Pokemon for a reserve.
 
@@ -213,6 +224,9 @@ def score_switch_action(
         opponent_actives: List of opponent active Pokemon views.
         state: Current battle state view.
         params: Battle rule parameters.
+        avg_move_score: Average move score for the active Pokemon,
+            used to calibrate the switch baseline against current
+            move quality.
 
     Returns:
         Score float. Returns -inf if the reserve has fainted.
@@ -220,7 +234,7 @@ def score_switch_action(
     if reserve_pkm.hp <= 0:
         return -float("inf")
 
-    switch_score = 50.0
+    switch_score = avg_move_score * 0.5
     num_opponents = len(opponent_actives)
     if num_opponents == 0:
         return switch_score
@@ -398,8 +412,65 @@ def estimate_incoming_threat(
         if highest_damage >= my_pokemon.hp:
             any_single_can_ko = True
 
+    priority_damage = _priority_threat_delta(my_pokemon, opponent_actives, state, params)
+    max_total += priority_damage
+
     is_likely_ko = (max_total >= my_pokemon.hp) or any_single_can_ko
     return max_total, is_likely_ko
+
+
+def _priority_threat_delta(
+    my_pokemon: BattlingPokemonView,
+    opponent_actives: list,
+    state: StateView,
+    params: BattleRuleParam,
+) -> float:
+    """Additional threat from opponent priority moves that out-speed our own.
+
+    If an opponent has a priority move (priority > 0) and our Pokemon
+    does not have any priority move that matches or beats it, the
+    opponent's priority move will always go first. Adds that damage
+    to the total threat since it cannot be played around by speed.
+
+    Args:
+        my_pokemon: The defending Pokemon view.
+        opponent_actives: List of opponent active Pokemon views.
+        state: Current battle state view.
+        params: Battle rule parameters.
+
+    Returns:
+        Additional damage that must be accounted for due to priority.
+    """
+    our_has_priority = any(
+        mv.constants.priority > 0
+        for mv in (my_pokemon.battling_moves or [])
+        if mv and mv.pp > 0 and not mv.disabled
+    )
+
+    max_priority_dmg = 0.0
+    for opp_pkm in opponent_actives:
+        if not opp_pkm or opp_pkm.hp <= 0:
+            continue
+        for opp_move in (opp_pkm.battling_moves or []):
+            if (
+                not opp_move
+                or opp_move.constants.priority <= 0
+                or opp_move.constants.category == Category.OTHER
+                or opp_move.constants.base_power == 0
+                or opp_move.pp <= 0
+                or opp_move.disabled
+            ):
+                continue
+            dmg = calculate_damage(
+                params=params, attacking_side=1, move=opp_move.constants,
+                state=state, attacker=opp_pkm, defender=my_pokemon,
+            )
+            if dmg > max_priority_dmg:
+                max_priority_dmg = dmg
+
+    if max_priority_dmg > 0 and not our_has_priority:
+        return max_priority_dmg
+    return 0.0
 
 
 def identify_biggest_threat(
@@ -651,7 +722,7 @@ def _status_value(
     elif status_to_inflict in (Status.POISON, Status.TOXIC):
         status_value = calculate_poison_damage(params, target)
         if status_to_inflict == Status.TOXIC:
-            status_value *= 1.5
+            status_value *= 2.5
 
     elif status_to_inflict == Status.SLEEP:
         threat, _ = estimate_incoming_threat(user, [target], state, params)
