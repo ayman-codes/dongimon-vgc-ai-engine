@@ -20,6 +20,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true 
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y nodejs npm
@@ -32,19 +33,18 @@ jobs:
           node pokemon-showdown start --no-security &
           sleep 3
 
-      - name: Install vgc2
+      - name: Install vgc2 and project dependencies
         run: |
+          uv venv
           git clone --depth=1 https://gitlab.com/DracoStriker/pokemon-vgc-engine.git /tmp/vgc2
           uv pip install -e /tmp/vgc2
-
-      - name: Install dongimon
-        run: uv sync --dev
+          uv pip install -e .[dev] 
 
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/ scripts/
+        run: uv run --with ruff ruff check src/ tests/ scripts/
 
       - name: Type check with mypy
-        run: uv run mypy src/
+        run: uv run --with mypy mypy src/
 
       - name: Test with pytest
-        run: uv run pytest tests/ -v --timeout=30
+        run: uv run --with pytest --with pytest-timeout pytest tests/ -v --timeout=30
