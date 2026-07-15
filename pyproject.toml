@@ -1,0 +1,78 @@
+[project]
+name = "dongimon"
+version = "2.0.0"
+description = "Reinforcement Learning & Game Theory engine for competitive Pokémon VGC"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.uv.sources]
+# vgc2 is installed from local source at C:\Users\Mohammed Ayman PC\pokemon-vgc-engine
+# Install with: pip install -e "C:\Users\Mohammed Ayman PC\pokemon-vgc-engine"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "gymnasium>=1.0",
+    "numpy>=2.2",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",     # pycodestyle
+    "N",                # pep8-naming
+    "UP",               # pyupgrade
+    "B",                # flake8-bugbear
+    "C4",               # flake8-comprehensions
+    "SIM",              # flake8-simplify
+    "I",                # isort
+    "T20",              # flake8-print
+]
+ignore = [
+    "T201",   # print is okay for game logs
+    "N802",   # allow UPPER_CASE in test functions
+    "S101",   # allow assert in tests
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+ignore_missing_imports = true
+exclude = ["tests/"]
+packages = ["src"]
+
+[[tool.mypy.overrides]]
+module = "vgc2.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

@@ -1,0 +1,10 @@
+context/*
+context/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.vscode/
+competitor.py
+my_battle_policy.py
+selection_policy.py
+TeamBuildPolicy.py
