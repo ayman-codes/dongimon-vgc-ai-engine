@@ -33,6 +33,11 @@ class BattleWeights(BaseModel):
     w_base_score_b: float = Field(default=0.1500, gt=0.0, description="Base score for Pokémon B")
     w_survival_impact: float = Field(default=0.1300, gt=0.0, description="Survival impact penalty")
     w_setup_synergy: float = Field(default=0.1800, gt=0.0, description="Setup synergy bonus")
+    w_status_burn: float = Field(default=30.0, ge=0.0, description="Burn status value weight")
+    w_status_sleep: float = Field(default=40.0, ge=0.0, description="Sleep status value weight")
+    w_status_para: float = Field(default=20.0, ge=0.0, description="Paralysis status value weight")
+    w_status_poison: float = Field(default=15.0, ge=0.0, description="Poison status value weight")
+    w_status_toxic: float = Field(default=25.0, ge=0.0, description="Toxic status value weight")
 
 
 class SelectionConfig(BaseModel):

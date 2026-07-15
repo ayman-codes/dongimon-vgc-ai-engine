@@ -61,6 +61,11 @@ def objective(trial: optuna.Trial) -> float:
         "w_off_def_support": trial.suggest_float("w_off_def_support", 0.01, 0.30),
         "w_setup_synergy":   trial.suggest_float("w_setup_synergy",   0.01, 0.30),
         "w_env_synergy":     trial.suggest_float("w_env_synergy",     0.01, 0.30),
+        "w_status_sleep":    trial.suggest_float("w_status_sleep",    5.0, 80.0),
+        "w_status_burn":     trial.suggest_float("w_status_burn",     5.0, 80.0),
+        "w_status_para":     trial.suggest_float("w_status_para",     5.0, 80.0),
+        "w_status_poison":   trial.suggest_float("w_status_poison",   5.0, 80.0),
+        "w_status_toxic":    trial.suggest_float("w_status_toxic",    5.0, 80.0),
     }
 
     total_wins = 0
@@ -91,7 +96,7 @@ def objective(trial: optuna.Trial) -> float:
 def main():
     _init_opponents()
 
-    study_name = f"dongimon_weight_tuning_{time.strftime('%Y%m%d_%H%M%S')}"
+    study_name = "dongimon_weight_tuning_final"
     study_path = os.path.join(os.path.dirname(__file__), "..", "optuna_study.db")
     storage_url = f"sqlite:///{os.path.abspath(study_path)}"
 

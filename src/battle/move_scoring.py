@@ -27,6 +27,7 @@ def score_offensive_move(
     target_pokemon: BattlingPokemonView,
     state: StateView,
     params: BattleRuleParam,
+    status_weights: dict[int, float] | None = None,
 ) -> tuple[float, bool]:
     """Score a single offensive move against a target.
 
@@ -77,19 +78,11 @@ def score_offensive_move(
         is_ko_potential = actual_damage_dealt >= target_pokemon.hp
 
         if is_ko_potential:
-            ko_bonus = 0
-            my_active_team = [p for p in state.sides[0].team.active if p and p.hp > 0]
-            for my_pkm in my_active_team:
-                threat_to_one_ally, _ = estimate_incoming_threat(my_pkm, [target_pokemon], state, params)
-                ko_bonus += threat_to_one_ally
-            action_score += ko_bonus
-
-    if move_const.accuracy is not None:
-        action_score *= move_const.accuracy
+            action_score += 500.0
 
     utility_score = 0.0
 
-    status_utility = _status_value(attacker, target_pokemon, move_const, state, params)
+    status_utility = _status_value(attacker, target_pokemon, move_const, state, params, status_weights)
     utility_score += status_utility
 
     stat_boost_utility = _stat_boost_value(attacker, move_const, state, params)
@@ -143,7 +136,7 @@ def score_offensive_move(
             )
             action_score += best_switch_val
 
-    return max(0, action_score), is_ko_potential
+    return action_score, is_ko_potential
 
 
 def score_protect_move(
@@ -669,18 +662,21 @@ def _status_value(
     move: Move,
     state: StateView,
     params: BattleRuleParam,
+    status_weights: dict[int, float] | None = None,
 ) -> float:
-    """Calculate the value of inflicting a status condition.
+    """Calculate the value of inflicting a status condition using configurable weights.
 
-    Evaluates passive damage, damage mitigation (burn cuts physical),
-    turn denial (paralysis, sleep), and ramping damage (toxic).
+    Each status type has a weight (damage-equivalent points) stored in config.
+    The score is ``weight * effect_prob`` where effect_prob is the move's
+    probability of applying the condition.
 
     Args:
         user: The Pokemon using the status move.
         target: The target Pokemon.
         move: The Move constants being evaluated.
-        state: Current battle state view.
-        params: Battle rule parameters.
+        state: Current battle state view (unused in weight-based version).
+        params: Battle rule parameters (unused in weight-based version).
+        status_weights: Dict mapping Status enum integer values to float weights.
 
     Returns:
         Float value of the status condition.
@@ -688,50 +684,18 @@ def _status_value(
     if move.status == Status.NONE or target.status != Status.NONE:
         return 0.0
 
-    status_value = 0.0
-    status_to_inflict = move.status
-
-    if status_to_inflict in (Status.POISON, Status.TOXIC) and any(
-        t in (Type.POISON, Type.STEEL) for t in target.types
-    ):
-        return 0.0
-    if status_to_inflict == Status.PARALYZED and Type.ELECTRIC in target.types:
-        return 0.0
-    if status_to_inflict == Status.BURN and Type.FIRE in target.types:
-        return 0.0
-    if status_to_inflict == Status.FROZEN and Type.ICE in target.types:
+    if status_weights is None:
         return 0.0
 
-    if status_to_inflict == Status.BURN:
-        passive = calculate_burn_damage(params, target)
-        mitigated = 0
-        if target.constants.stats[Stat.ATTACK] >= target.constants.stats[Stat.SPECIAL_ATTACK]:
-            highest_phys = 0
-            for opp_move in target.constants.species.moves:
-                if opp_move.category == Category.PHYSICAL:
-                    dmg = calculate_damage(params, 1, opp_move, state, target, user)
-                    if dmg > highest_phys:
-                        highest_phys = dmg
-            mitigated = highest_phys * 0.5
-        status_value = passive + mitigated
+    weight = status_weights.get(move.status.value, 0.0)
+    if weight <= 0.0:
+        return 0.0
 
-    elif status_to_inflict == Status.PARALYZED:
-        threat, _ = estimate_incoming_threat(user, [target], state, params)
-        status_value = threat * params.PARALYSIS_THRESHOLD
+    prob = getattr(move, "status_chance", 1.0)
+    if prob <= 0.0:
+        prob = 1.0
 
-    elif status_to_inflict in (Status.POISON, Status.TOXIC):
-        status_value = calculate_poison_damage(params, target)
-        if status_to_inflict == Status.TOXIC:
-            status_value *= 2.5
-
-    elif status_to_inflict == Status.SLEEP:
-        threat, _ = estimate_incoming_threat(user, [target], state, params)
-        status_value = threat * 2.0
-
-    if status_value > 0:
-        status_value += 10
-
-    return status_value
+    return weight * prob
 
 
 def _stat_boost_value(

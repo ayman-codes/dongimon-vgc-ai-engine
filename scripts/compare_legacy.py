@@ -64,13 +64,13 @@ def main():
     legacy = MyBattlePolicy()
     extracted = DongimonBattlePolicy()
 
-    print(f"\n  Legacy MyBattlePolicy vs GreedyBattlePolicy...", end=" ", flush=True)
+    print("\n  Legacy MyBattlePolicy vs GreedyBattlePolicy...", end=" ", flush=True)
     t0 = time.perf_counter()
     lw = run_battles(legacy, n, team, view, sel, params)
     lt = time.perf_counter() - t0
     print(f"  {lw}/{n} wins ({lw/n*100:.0f}%)  [{lt:.0f}s]")
 
-    print(f"  Extracted DongimonBattlePolicy vs GreedyBattlePolicy...", end=" ", flush=True)
+    print("  Extracted DongimonBattlePolicy vs GreedyBattlePolicy...", end=" ", flush=True)
     t0 = time.perf_counter()
     ew = run_battles(extracted, n, team, view, sel, params)
     et = time.perf_counter() - t0

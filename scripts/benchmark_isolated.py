@@ -110,14 +110,14 @@ def main():
     params = BattleRuleParam()
 
     opponents = [
+        ("Greedy",       _greedy_baseline),
         ("JJJ",          _import("competitors.competitor1_jjj", "JJJ_Competitor")),
         ("minimon",      _import("competitors.competitor2_minimon", "minimon")),
         ("StocKarpador", _import("competitors.competitor3_stockarpador", "StocKarpadorCompetitor")),
-        ("Greedy",       _greedy_baseline),
     ]
 
     print("=" * 60)
-    print("Phase 1 — Battle policy only (same team + BasicSelection for all)")
+    print("Battle policy only (same team + BasicSelection for all)")
     print("=" * 60)
 
     for opp_name, opp_factory in opponents:
@@ -129,28 +129,6 @@ def main():
             opp.battlepolicy,
             shared_team, shared_view,
             basic_sel, basic_sel,
-            n_battles, params,
-        )
-        dt = time.perf_counter() - t0
-        pct = dw / max(dw + ow, 1) * 100
-        winner = "Dongimon" if dw > ow else opp_name
-        print(f"Winner: {winner:>12} ({pct:5.1f}%)  [{dt:.0f}s]")
-
-    print("\n" + "=" * 60)
-    print("Phase 2 — Selection + Battle (own selection policy)")
-    print("=" * 60)
-
-    for opp_name, opp_factory in opponents:
-        opp = opp_factory() if callable(opp_factory) else opp_factory
-        opp_sel = opp.selectionpolicy if opp.selectionpolicy is not None else basic_sel
-        print(f"  Dongimon vs {opp_name:<12}", end=" ", flush=True)
-        t0 = time.perf_counter()
-        dw, ow = run_battles(
-            dongimon.battlepolicy,
-            opp.battlepolicy,
-            shared_team, shared_view,
-            dongimon.selectionpolicy,
-            opp_sel,
             n_battles, params,
         )
         dt = time.perf_counter() - t0

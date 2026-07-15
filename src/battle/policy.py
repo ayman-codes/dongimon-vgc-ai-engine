@@ -55,6 +55,14 @@ class DongimonBattlePolicy(BattlePolicy):
                 if hasattr(weights, key):
                     self._weights[key] = value
 
+        self._status_weights = {
+            1: self._weights.get("w_status_sleep", 40.0),
+            2: self._weights.get("w_status_burn", 30.0),
+            4: self._weights.get("w_status_para", 20.0),
+            5: self._weights.get("w_status_poison", 15.0),
+            6: self._weights.get("w_status_toxic", 25.0),
+        }
+
     def decision(
         self,
         state: StateView,
@@ -104,7 +112,7 @@ class DongimonBattlePolicy(BattlePolicy):
                                 if opp_target is None or opp_target.hp <= 0:
                                     continue
                                 move_score, is_ko = score_offensive_move(
-                                    my_pkm, move, opp_target, state, self.params,
+                                    my_pkm, move, opp_target, state, self.params, self._status_weights,
                                 )
                                 actions_per_slot[original_slot].append(
                                     ((move_idx, target_slot), move_score, is_ko)
@@ -113,7 +121,7 @@ class DongimonBattlePolicy(BattlePolicy):
                             actions_per_slot[original_slot].append(((move_idx, 0), -100.0, False))
                         elif move.constants.category == Category.OTHER:
                             move_score, _ = score_offensive_move(
-                                my_pkm, move, my_pkm, state, self.params,
+                                my_pkm, move, my_pkm, state, self.params, self._status_weights,
                             )
                             actions_per_slot[original_slot].append(
                                 ((move_idx, original_slot), move_score, False)
