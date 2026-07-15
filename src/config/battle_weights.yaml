@@ -1,12 +1,8 @@
-# Battle Policy Weights — Champion configuration
-# These weights control the 8-component heuristic scoring in MyBattlePolicy.
-# All values are positive floats. Re-tuning these should be done via Optuna.
-
-w_off_def_support_bonus: 0.020
-w_base_score_a: 0.050
-w_env_synergy_bonus: 0.020
-w_focus_fire_bonus: 0.270
-w_target_priority_bonus: 0.180
-w_base_score_b: 0.150
-w_survival_impact: 0.130
-w_setup_synergy_bonus: 0.180
+w_base_score_a: 0.3231
+w_base_score_b: 0.1938
+w_env_synergy: 0.2873
+w_focus_fire: 0.3946
+w_off_def_support: 0.0705
+w_setup_synergy: 0.2746
+w_survival_impact: 0.0832
+w_target_priority: 0.0544

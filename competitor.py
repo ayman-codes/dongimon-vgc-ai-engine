@@ -8,9 +8,10 @@ from src.teambuild.policy import HesfTeamBuildPolicy
 
 
 class DongimonCompetitor(Competitor):
-    def __init__(self, name: str = "Dongimon"):
+    def __init__(self, name: str = "Dongimon", custom_weights: dict[str, float] | None = None):
         self.__name = name
-        self.__battle_policy_instance = DongimonBattlePolicy()
+        battle_policy = DongimonBattlePolicy(custom_weights=custom_weights) if custom_weights else DongimonBattlePolicy()
+        self.__battle_policy_instance = battle_policy
         self.__selection_policy_instance = DongimonSelectionPolicy()
         self.__team_build_policy_instance = HesfTeamBuildPolicy()
 

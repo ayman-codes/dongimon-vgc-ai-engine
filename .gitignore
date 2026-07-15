@@ -11,6 +11,8 @@ build/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.vscode/
+
 
 # OS
 .DS_Store
@@ -18,3 +20,6 @@ Thumbs.db
 
 competitors/
 context/
+__pycache__/
+__pycache__/*
+__pycache__/competitor.cpython-314.pyc

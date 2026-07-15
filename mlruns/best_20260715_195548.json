@@ -1,0 +1,16 @@
+{
+  "study": "dongimon_weight_tuning_20260715_182114",
+  "best_trial": 31,
+  "best_win_rate": 0.2777777777777778,
+  "best_params": {
+    "w_base_score_a": 0.32314499741043384,
+    "w_base_score_b": 0.19380629107568498,
+    "w_focus_fire": 0.39460570333688555,
+    "w_target_priority": 0.05444909697596056,
+    "w_survival_impact": 0.0831910002288079,
+    "w_off_def_support": 0.07045956699879322,
+    "w_setup_synergy": 0.2746343883938005,
+    "w_env_synergy": 0.2872841916534612
+  },
+  "trials": 50
+}
