@@ -23,6 +23,7 @@ context/
 __pycache__/
 __pycache__/*
 __pycache__/competitor.cpython-314.pyc
+__pycache__
 
 # Mlflow
 mlruns/

@@ -15,8 +15,25 @@ from src.battle.move_scoring import (
     estimate_incoming_threat,
     identify_biggest_threat,
 )
-
-BOARD_WEIGHT = 0.15
+from src.config.constants import (
+    BOARD_WEIGHT,
+    GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD,
+    GOOD_PROTECT_THRESHOLD,
+    HIGH_VALUE_PROTECT_THRESHOLD,
+    LETHAL_SURVIVAL_PENALTY_MULT,
+    OFF_DEF_SUPPORT_BONUS,
+    PROPORTIONAL_SURVIVAL_PENALTY_MULT,
+    SETUP_MOVE_MAX_BP,
+    SETUP_MOVE_MIN_SCORE,
+    SETUP_SYNERGY_BONUS,
+    STRONG_OFFENSIVE_THRESHOLD,
+    TARGET_PRIORITY_BASE,
+    TARGET_PRIORITY_KO_ALLY_MULT,
+    TERRAIN_SYNERGY_BONUS,
+    THREAT_KO_ALLY_BASE,
+    TRICK_ROOM_SYNERGY_BONUS,
+    WEATHER_SYNERGY_BONUS,
+)
 
 
 def evaluate_joint_actions(
@@ -31,6 +48,7 @@ def evaluate_joint_actions(
     weights: dict[str, float],
     max_score: float,
     locked_moves: dict[int, str] | None = None,
+    lookahead_weight: float = BOARD_WEIGHT,
 ) -> tuple[list, dict, dict, float]:
     """Evaluate all joint action pairs and select the best.
 
@@ -158,7 +176,8 @@ def evaluate_joint_actions(
                 and opp_active_list[cmd_b_target] and opp_active_list[cmd_b_target].hp > 0
             ):
                 opp_alive_after -= 1
-            bp_score = float(my_alive_after - opp_alive_after)
+
+            bp_score = 2.0 * my_alive_after - 2.5 * opp_alive_after
 
             raw_a.append(score_a)
             raw_b.append(score_b)
@@ -208,7 +227,7 @@ def evaluate_joint_actions(
             + n_od * weights.get("w_off_def_support", 0.02)
             + n_su * weights.get("w_setup_synergy", 0.18)
             + n_ev * weights.get("w_env_synergy", 0.02)
-            + n_bp * BOARD_WEIGHT
+            + n_bp * lookahead_weight
         )
 
         if joint > best_joint:
@@ -266,13 +285,13 @@ def _survival_impact(
             and ally_target_slot == biggest_threat_slot
         )
         if not ally_ko_biggest:
-            return -(max_score * 0.75)
+            return -(max_score * LETHAL_SURVIVAL_PENALTY_MULT)
     elif dmg_taken > 0:
         pkm_max_hp = pkm.constants.stats[Stat.MAX_HP] if pkm.constants else 1.0
         if pkm_max_hp <= 0:
             pkm_max_hp = 1.0
         hp_pct = dmg_taken / pkm_max_hp
-        return -(hp_pct * (max_score * 0.35))
+        return -(hp_pct * (max_score * PROPORTIONAL_SURVIVAL_PENALTY_MULT))
 
     return 0.0
 
@@ -343,13 +362,13 @@ def _survival_impact_b(
             and cmd_a_target == biggest_threat_slot
         )
         if not a_ko_threat:
-            return -(max_score * 0.75)
+            return -(max_score * LETHAL_SURVIVAL_PENALTY_MULT)
     elif dmg_taken > 0:
         pkm_max_hp = pkm_b.constants.stats[Stat.MAX_HP] if pkm_b.constants else 1.0
         if pkm_max_hp <= 0:
             pkm_max_hp = 1.0
         hp_pct = dmg_taken / pkm_max_hp
-        return -(hp_pct * (max_score * 0.35))
+        return -(hp_pct * (max_score * PROPORTIONAL_SURVIVAL_PENALTY_MULT))
 
     return 0.0
 
@@ -467,12 +486,12 @@ def _target_priority(
     if not (ko_threat_a or ko_threat_b):
         return 0.0
 
-    bonus = 450.0
+    bonus = TARGET_PRIORITY_BASE
     for my_pkm in my_active_list:
         if my_pkm and my_pkm.hp > 0:
             _, ko_my = estimate_incoming_threat(my_pkm, [biggest_threat_pkm], state, params, locked_moves)
             if ko_my:
-                bonus += 75.0 * 1.7
+                bonus += THREAT_KO_ALLY_BASE * TARGET_PRIORITY_KO_ALLY_MULT
                 break
 
     return bonus
@@ -503,15 +522,15 @@ def _off_def_support(
         return 0.0
 
     bonus = 0.0
-    a_strong_off = is_move_a and not move_a_const.protect and score_a > 300
-    b_good_prot = is_move_b and move_b_const.protect and score_b > 100
-    if a_strong_off and b_good_prot and (pkm_b_ko_by_threat or score_b > 150):
-        bonus += 125.0 * 2.5
+    a_strong_off = is_move_a and not move_a_const.protect and score_a > STRONG_OFFENSIVE_THRESHOLD
+    b_good_prot = is_move_b and move_b_const.protect and score_b > GOOD_PROTECT_THRESHOLD
+    if a_strong_off and b_good_prot and (pkm_b_ko_by_threat or score_b > HIGH_VALUE_PROTECT_THRESHOLD):
+        bonus += OFF_DEF_SUPPORT_BONUS
 
-    b_strong_off = is_move_b and not move_b_const.protect and score_b > 300
-    a_good_prot = is_move_a and move_a_const.protect and score_a > 100
-    if b_strong_off and a_good_prot and (pkm_a_ko_by_threat or score_a > 150):
-        bonus += 125.0 * 2.5
+    b_strong_off = is_move_b and not move_b_const.protect and score_b > STRONG_OFFENSIVE_THRESHOLD
+    a_good_prot = is_move_a and move_a_const.protect and score_a > GOOD_PROTECT_THRESHOLD
+    if b_strong_off and a_good_prot and (pkm_a_ko_by_threat or score_a > HIGH_VALUE_PROTECT_THRESHOLD):
+        bonus += OFF_DEF_SUPPORT_BONUS
 
     return bonus
 
@@ -543,42 +562,34 @@ def _setup_synergy(
     b_setup = _is_setup_move(is_move_b, move_b_const, score_b, is_ko_b)
 
     if a_setup:
-        b_good_off = is_move_b and not move_b_const.protect and not is_ko_b and score_b > 250
-        b_good_prot = is_move_b and move_b_const.protect and score_b > 100
+        b_good_off = (
+            is_move_b and not move_b_const.protect and not is_ko_b
+            and score_b > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
+        )
+        b_good_prot = is_move_b and move_b_const.protect and score_b > GOOD_PROTECT_THRESHOLD
         if b_good_off or b_good_prot:
-            bonus += 75.0 * 2.5
+            bonus += SETUP_SYNERGY_BONUS
 
     if b_setup:
-        a_good_off = is_move_a and not move_a_const.protect and not is_ko_a and score_a > 250
-        a_good_prot = is_move_a and move_a_const.protect and score_a > 100
+        a_good_off = (
+            is_move_a and not move_a_const.protect and not is_ko_a
+            and score_a > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
+        )
+        a_good_prot = is_move_a and move_a_const.protect and score_a > GOOD_PROTECT_THRESHOLD
         if a_good_off or a_good_prot:
-            bonus += 75.0 * 2.5
+            bonus += SETUP_SYNERGY_BONUS
 
     return bonus
 
 
 def _is_setup_move(is_move: bool, move_const: object, score: float, is_ko: bool) -> bool:
-    """Check if an action is a beneficial setup move.
-
-    Returns True for status moves, or low-BP moves with non-KO
-    benefits (boosts, weather, terrain, trick room).
-
-    Args:
-        is_move: Whether the action is a move (not switch).
-        move_const: Move constants.
-        score: Individual move score.
-        is_ko: Whether the move KOs.
-
-    Returns:
-        True if the move qualifies as a setup move.
-    """
-    if not (is_move and move_const and score > 150):
+    if not (is_move and move_const and score > SETUP_MOVE_MIN_SCORE):
         return False
 
     if move_const.category == Category.OTHER:
         return True
     return bool(
-        move_const.base_power < 50
+        move_const.base_power < SETUP_MOVE_MAX_BP
         and not is_ko
         and (
             move_const.boosts
@@ -655,7 +666,7 @@ def _weather_synergy(
             (new_weather == Weather.RAIN and beneficiary.pkm_type == Type.WATER)
             or (new_weather == Weather.SUN and beneficiary.pkm_type == Type.FIRE)
         ):
-            return 75.0 * 1.8
+            return WEATHER_SYNERGY_BONUS
     return 0.0
 
 
@@ -692,7 +703,7 @@ def _terrain_synergy(
             or (new_terrain == Terrain.GRASSY_TERRAIN and beneficiary.pkm_type == Type.GRASS)
             or (new_terrain == Terrain.PSYCHIC_TERRAIN and beneficiary.pkm_type == Type.PSYCHIC)
         ):
-            return 60.0 * 1.8
+            return TERRAIN_SYNERGY_BONUS
     return 0.0
 
 
@@ -722,5 +733,5 @@ def _trick_room_synergy(
         and benefit_pkm.constants.stats[Stat.SPEED] < 70
         and not beneficiary.priority > 0
     ):
-        return 80.0 * 1.8
+        return TRICK_ROOM_SYNERGY_BONUS
     return 0.0

@@ -17,6 +17,59 @@ from vgc2.battle_engine.modifiers import Category, Hazard, Stat, Status, Terrain
 from vgc2.battle_engine.move import Move
 from vgc2.battle_engine.view import BattlingPokemonView, StateView
 
+from src.config.constants import (
+    BASE_STAT_DIVISOR,
+    BOOST_VALUE_PER_STAGE,
+    COMBINED_KO_BONUS,
+    DAMAGE_SCORE_TO_PCT_MULT,
+    DEFAULT_ACCURACY,
+    DEFAULT_AVG_MOVE_SCORE,
+    DEFENSIVE_BOOST_STATS,
+    DEFENSIVE_STAT_BOOST_VALUE,
+    DOUBLE_RESIST_SCORE,
+    DOUBLE_WEAKNESS_SCORE,
+    FALLBACK_THREAT_ACC,
+    FALLBACK_THREAT_BP,
+    FF_COMBINED_BIGGEST_EXTRA,
+    FF_HEAVY_DAMAGE_BIGGEST_EXTRA,
+    FF_HEAVY_DAMAGE_BOTH,
+    FF_SINGLE_ALLY_CONTRIB,
+    FF_SINGLE_BIGGEST_EXTRA,
+    FF_SINGLE_NO_CONTRIB,
+    HAZARD_REDUNDANCY_PENALTY,
+    IMMUNE_RESIST_SCORE,
+    KO_BONUS,
+    LOW_DAMAGE_THRESHOLD,
+    OFF_THREAT_DOUBLE_SCORE,
+    OFF_THREAT_QUAD_SCORE,
+    PP_PENALTY_MULT,
+    PP_PENALTY_RATIO,
+    PP_PENALTY_THRESHOLD,
+    SCREEN_DAMAGE_RATE,
+    SCREEN_REDUNDANCY_PENALTY,
+    SINGLE_RESIST_SCORE,
+    SINGLE_WEAKNESS_SCORE,
+    SPEED_BOOST_DIVISOR,
+    STAB_MULTIPLIER,
+    STAT_STAGE_MAX,
+    STAT_STAGE_MIN,
+    STRONG_OFFENSIVE_TYPE_THRESHOLD,
+    SUBSTANTIAL_DAMAGE_RATIO,
+    SWITCH_BASELINE_MULT,
+    SWITCH_DEF_PIVOT_THRESHOLD,
+    SWITCH_DUAL_BONUS,
+    SWITCH_GOOD_BOTH_THRESHOLD,
+    SWITCH_OFFENSIVE_MULT,
+    SWITCH_SYNERGY_MULT,
+    THREAT_PROXY_SCALE,
+    THREAT_TOP_MOVES,
+    TYPE_EFF_HALF_RESIST,
+    TYPE_EFF_IMMUNE,
+    TYPE_EFF_QUAD_RESIST,
+    TYPE_EFF_QUAD_SUPER,
+    TYPE_EFF_SUPER,
+    TYPE_MATCHUP_SCALE,
+)
 from src.shared.move_utils import is_status_move
 from src.shared.types import type_effectiveness, vgc2_type_to_name
 
@@ -70,12 +123,12 @@ def score_offensive_move(
         if target_pokemon.hp > 0:
             damage_for_scoring = min(actual_damage_dealt, target_pokemon.hp)
             percent_hp_dealt = damage_for_scoring / target_pokemon.hp
-            action_score += percent_hp_dealt * 100
+            action_score += percent_hp_dealt * DAMAGE_SCORE_TO_PCT_MULT
 
         is_ko_potential = actual_damage_dealt >= target_pokemon.hp
 
         if is_ko_potential:
-            action_score += 500.0
+            action_score += KO_BONUS
 
     utility_score = 0.0
 
@@ -120,8 +173,12 @@ def score_offensive_move(
     healing_utility = _healing_value(attacker, move_const, state, params)
     utility_score += healing_utility
 
-    if not is_ko_potential and move_const.max_pp > 0 and (move.pp / move_const.max_pp) < 0.3 and action_score < 400:
-        action_score *= 0.8
+    if (
+        not is_ko_potential and move_const.max_pp > 0
+        and (move.pp / move_const.max_pp) < PP_PENALTY_RATIO
+        and action_score < PP_PENALTY_THRESHOLD
+    ):
+        action_score *= PP_PENALTY_MULT
 
     pivot_names = {"u-turn", "volt switch", "flip turn", "parting shot"}
     if move_const.name.lower() in pivot_names:
@@ -188,7 +245,7 @@ def score_protect_move(
 
     protect_score += net_passive
 
-    protect_accuracy = move.constants.accuracy if move.constants.accuracy is not None else 1.0
+    protect_accuracy = move.constants.accuracy if move.constants.accuracy is not None else DEFAULT_ACCURACY
     protect_reliability = protect_accuracy * protect_modifier(params, move.constants, protector)
 
     return protect_score * protect_reliability
@@ -200,7 +257,7 @@ def score_switch_action(
     opponent_actives: list,
     state: StateView,
     params: BattleRuleParam,
-    avg_move_score: float = 50.0,
+    avg_move_score: float = DEFAULT_AVG_MOVE_SCORE,
 ) -> float:
     """Score switching the current Pokemon for a reserve.
 
@@ -224,7 +281,7 @@ def score_switch_action(
     if reserve_pkm.hp <= 0:
         return -float("inf")
 
-    switch_score = avg_move_score * 0.5
+    switch_score = avg_move_score * SWITCH_BASELINE_MULT
     num_opponents = len(opponent_actives)
     if num_opponents == 0:
         return switch_score
@@ -243,19 +300,19 @@ def score_switch_action(
             eff = _get_type_eff_string(opp_stab_type, reserve_pkm.types)
             best_resist = min(best_resist, eff)
 
-            if eff == 0:
-                resistance += 225 * 4
-            elif eff <= 0.25:
-                resistance += 170 * 4
-            elif eff <= 0.5:
-                resistance += 80 * 4
-            elif eff >= 4.0:
-                resistance -= 125 * 4
-            elif eff >= 2.0:
-                resistance -= 75 * 4
+            if eff == TYPE_EFF_IMMUNE:
+                resistance += IMMUNE_RESIST_SCORE * TYPE_MATCHUP_SCALE
+            elif eff <= TYPE_EFF_QUAD_RESIST:
+                resistance += DOUBLE_RESIST_SCORE * TYPE_MATCHUP_SCALE
+            elif eff <= TYPE_EFF_HALF_RESIST:
+                resistance += SINGLE_RESIST_SCORE * TYPE_MATCHUP_SCALE
+            elif eff >= TYPE_EFF_QUAD_SUPER:
+                resistance -= DOUBLE_WEAKNESS_SCORE * TYPE_MATCHUP_SCALE
+            elif eff >= TYPE_EFF_SUPER:
+                resistance -= SINGLE_WEAKNESS_SCORE * TYPE_MATCHUP_SCALE
 
         total_resistance_score += resistance / num_opponents
-        if best_resist <= 0.25:
+        if best_resist <= SWITCH_DEF_PIVOT_THRESHOLD:
             is_strong_defensive_pivot = True
 
     switch_score += total_resistance_score
@@ -278,22 +335,22 @@ def score_switch_action(
                 eff = _get_type_eff_string(incoming_move.pkm_type, opp_pkm.types)
                 max_eff = max(max_eff, eff)
 
-                if eff >= 4.0:
-                    off_contrib = max(off_contrib, 125)
-                elif eff >= 2.0:
-                    off_contrib = max(off_contrib, 75)
+                if eff >= TYPE_EFF_QUAD_SUPER:
+                    off_contrib = max(off_contrib, OFF_THREAT_QUAD_SCORE)
+                elif eff >= TYPE_EFF_SUPER:
+                    off_contrib = max(off_contrib, OFF_THREAT_DOUBLE_SCORE)
 
             total_offensive_score += off_contrib / num_opponents
-            if max_eff >= 4.0:
+            if max_eff >= STRONG_OFFENSIVE_TYPE_THRESHOLD:
                 is_strong_offensive_threat = True
 
-    switch_score += total_offensive_score * 1.7
+    switch_score += total_offensive_score * SWITCH_OFFENSIVE_MULT
 
     if is_strong_defensive_pivot and is_strong_offensive_threat:
-        switch_score += 150
+        switch_score += SWITCH_DUAL_BONUS
 
-    if total_resistance_score > 30 and total_offensive_score > 30:
-        switch_score *= 1.15
+    if total_resistance_score > SWITCH_GOOD_BOTH_THRESHOLD and total_offensive_score > SWITCH_GOOD_BOTH_THRESHOLD:
+        switch_score *= SWITCH_SYNERGY_MULT
 
     if state.sides[0].conditions.stealth_rock:
         sr_damage = calculate_stealth_rock_damage(params, reserve_pkm)
@@ -406,13 +463,13 @@ def estimate_incoming_threat(
                     continue
 
                 bp = float(pot_move.base_power)
-                stab = 1.5 if pot_move.pkm_type in opp_pkm.types else 1.0
+                stab = STAB_MULTIPLIER if pot_move.pkm_type in opp_pkm.types else 1.0
                 eff = _get_type_eff_string(pot_move.pkm_type, my_pokemon.types)
-                proxy = bp * (eff * 2) * stab * pot_move.accuracy
+                proxy = bp * (eff * THREAT_PROXY_SCALE) * stab * pot_move.accuracy
                 candidates.append({"move": pot_move, "score": proxy})
 
             candidates.sort(key=lambda x: x["score"], reverse=True)
-            top_moves = [c["move"] for c in candidates[:15]]
+            top_moves = [c["move"] for c in candidates[:THREAT_TOP_MOVES]]
 
             for pot_move in top_moves:
                 dmg = calculate_damage(
@@ -539,13 +596,17 @@ def identify_biggest_threat(
                             and opp_move.constants.pkm_type in opp_pkm.types
                         ):
                                 eff = _get_type_eff_string(opp_move.constants.pkm_type, my_pkm.types)
-                                acc = opp_move.constants.accuracy if opp_move.constants.accuracy is not None else 1.0
+                                acc = (
+                                    opp_move.constants.accuracy
+                                    if opp_move.constants.accuracy is not None
+                                    else DEFAULT_ACCURACY
+                                )
                                 temp_highest = max(temp_highest, opp_move.constants.base_power * eff * acc)
 
-                if temp_highest < 70 and opp_pkm.constants and opp_pkm.constants.species:
+                if temp_highest < LOW_DAMAGE_THRESHOLD and opp_pkm.constants and opp_pkm.constants.species:
                     for p_type in opp_pkm.types:
                         eff = _get_type_eff_string(p_type, my_pkm.types)
-                        temp_highest = max(temp_highest, 80 * eff * 0.9)
+                        temp_highest = max(temp_highest, FALLBACK_THREAT_BP * eff * FALLBACK_THREAT_ACC)
 
                 max_dmg_to_team = max(max_dmg_to_team, temp_highest)
 
@@ -558,15 +619,15 @@ def identify_biggest_threat(
             if opp_pkm.boosts[Stat.SPECIAL_ATTACK] > 0:
                 offensive_boost += opp_pkm.boosts[Stat.SPECIAL_ATTACK]
             if opp_pkm.boosts[Stat.SPEED] > 0:
-                offensive_boost += opp_pkm.boosts[Stat.SPEED] / 2.0
+                offensive_boost += opp_pkm.boosts[Stat.SPEED] / SPEED_BOOST_DIVISOR
 
-        current_score += offensive_boost * 50
+        current_score += offensive_boost * BOOST_VALUE_PER_STAGE
 
         if opp_pkm.constants and opp_pkm.constants.species:
             base_atk = opp_pkm.constants.species.base_stats[Stat.ATTACK]
             base_spa = opp_pkm.constants.species.base_stats[Stat.SPECIAL_ATTACK]
             base_spe = opp_pkm.constants.species.base_stats[Stat.SPEED]
-            current_score += (base_atk + base_spa + base_spe) / 10
+            current_score += (base_atk + base_spa + base_spe) / BASE_STAT_DIVISOR
 
         if current_score > best_score:
             best_score = current_score
@@ -630,34 +691,37 @@ def calculate_focus_fire_bonus(
     if total_focus_dmg >= initial_hp:
         combined_ko = True
 
-    acc_a = move_a_const.accuracy if move_a_const.accuracy is not None else 1.0
-    acc_b = move_b_const.accuracy if move_b_const.accuracy is not None else 1.0
+    acc_a = move_a_const.accuracy if move_a_const.accuracy is not None else DEFAULT_ACCURACY
+    acc_b = move_b_const.accuracy if move_b_const.accuracy is not None else DEFAULT_ACCURACY
     reliability = acc_a * acc_b
 
     if combined_ko:
-        bonus = 750.0 * reliability
+        bonus = COMBINED_KO_BONUS * reliability
         if target_pkm_view is biggest_threat_on_field:
-            bonus += 200.0 * reliability
+            bonus += FF_COMBINED_BIGGEST_EXTRA * reliability
         return bonus
 
     if is_pkm_a_koing or is_pkm_b_koing:
         temp = 0.0
         if is_pkm_a_koing and dmg_b > 0:
-            temp = 120.0 * acc_a
+            temp = FF_SINGLE_ALLY_CONTRIB * acc_a
         elif is_pkm_b_koing and dmg_a > 0:
-            temp = 120.0 * acc_b
+            temp = FF_SINGLE_ALLY_CONTRIB * acc_b
         elif is_pkm_a_koing:
-            temp = 100.0 * acc_a
+            temp = FF_SINGLE_NO_CONTRIB * acc_a
         elif is_pkm_b_koing:
-            temp = 100.0 * acc_b
+            temp = FF_SINGLE_NO_CONTRIB * acc_b
         if target_pkm_view is biggest_threat_on_field and temp > 0:
-            temp += 50.0 * reliability
+            temp += FF_SINGLE_BIGGEST_EXTRA * reliability
         return temp
 
-    if initial_hp > 0 and (dmg_a / initial_hp > 0.3) and (dmg_b / initial_hp > 0.3):
-        bonus = 250.0 * reliability
+    if (
+        initial_hp > 0 and (dmg_a / initial_hp > SUBSTANTIAL_DAMAGE_RATIO)
+        and (dmg_b / initial_hp > SUBSTANTIAL_DAMAGE_RATIO)
+    ):
+        bonus = FF_HEAVY_DAMAGE_BOTH * reliability
         if target_pkm_view is biggest_threat_on_field:
-            bonus += 100.0 * reliability
+            bonus += FF_HEAVY_DAMAGE_BIGGEST_EXTRA * reliability
         return bonus
 
     return 0.0
@@ -786,7 +850,7 @@ def _stat_boost_value(
             temp_attacker.boosts = list(user.boosts)
             for i, change in enumerate(move.boosts):
                 if 0 < i < len(temp_attacker.boosts):
-                    temp_attacker.boosts[i] = max(-6, min(6, temp_attacker.boosts[i] + change))
+                    temp_attacker.boosts[i] = max(STAT_STAGE_MIN, min(STAT_STAGE_MAX, temp_attacker.boosts[i] + change))
 
             dmg_after = calculate_damage(params, 0, info["move"], state, temp_attacker, opp_actives[opp_idx])
             total_after += dmg_after
@@ -802,7 +866,7 @@ def _stat_boost_value(
             temp_defender.boosts = list(opp_pkm.boosts)
             for i, change in enumerate(move.boosts):
                 if 0 < i < len(temp_defender.boosts):
-                    temp_defender.boosts[i] = max(-6, min(6, temp_defender.boosts[i] + change))
+                    temp_defender.boosts[i] = max(STAT_STAGE_MIN, min(STAT_STAGE_MAX, temp_defender.boosts[i] + change))
 
             dmg_after, _ = estimate_incoming_threat(user, [temp_defender], state, params)
             total_mitigated += dmg_before - dmg_after
@@ -814,8 +878,8 @@ def _stat_boost_value(
             if change == 0 or i >= len(stat_map):
                 continue
             stat_affected = stat_map[i]
-            if stat_affected in (Stat.DEFENSE, Stat.SPECIAL_DEFENSE, Stat.SPEED):
-                boost_value += abs(change) * 20
+            if stat_affected in DEFENSIVE_BOOST_STATS:
+                boost_value += abs(change) * DEFENSIVE_STAT_BOOST_VALUE
 
     return boost_value
 
@@ -851,7 +915,7 @@ def _screen_value(
     if (is_reflect and state.sides[0].conditions.reflect) or (
         not is_reflect and state.sides[0].conditions.lightscreen
     ):
-        return -100
+        return SCREEN_REDUNDANCY_PENALTY
 
     total_mitigated = 0
     for my_pkm in my_team_actives:
@@ -872,7 +936,7 @@ def _screen_value(
 
             threat_to_pkm += best_opp_dmg
 
-        total_mitigated += threat_to_pkm * 0.5
+        total_mitigated += threat_to_pkm * SCREEN_DAMAGE_RATE
 
     return total_mitigated
 
@@ -1064,7 +1128,7 @@ def _field_setup_move(
         if (hazard == Hazard.STEALTH_ROCK and opp_conds.stealth_rock) or (
             hazard == Hazard.TOXIC_SPIKES and opp_conds.poison_spikes
         ):
-            setup_score -= 100
+            setup_score += HAZARD_REDUNDANCY_PENALTY
         else:
             total_hazard_dmg = 0
             opp_full_team = opponent_actives + [

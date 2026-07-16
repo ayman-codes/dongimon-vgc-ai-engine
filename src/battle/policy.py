@@ -18,6 +18,7 @@ from src.battle.move_scoring import (
     score_protect_move,
     score_switch_action,
 )
+from src.config.constants import BOARD_WEIGHT
 from src.config.loader import load_battle_weights
 
 MAX_SCORE = 1000.0
@@ -82,7 +83,6 @@ class DongimonBattlePolicy(BattlePolicy):
             Dict mapping opponent slot index to their locked move name,
             or empty dict if no opponents are Choice-locked.
         """
-        return {}
         for slot, opp in enumerate(state.sides[1].team.active):
             if not opp or opp.hp <= 0:
                 self._opp_last_used.pop(slot, None)
@@ -238,6 +238,7 @@ class DongimonBattlePolicy(BattlePolicy):
                 state, self.params,
                 self._weights, MAX_SCORE,
                 locked_moves,
+                self._weights.get("w_lookahead", BOARD_WEIGHT),
             )
             final_commands.extend(cmds)
             pkm0_log = log_a

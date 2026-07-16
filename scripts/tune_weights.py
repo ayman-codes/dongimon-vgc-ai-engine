@@ -25,7 +25,7 @@ from vgc2.util.generator import gen_team
 
 from competitor import DongimonCompetitor
 
-N_TRIALS = 50
+N_TRIALS = 250
 BATTLES_PER_MATCHUP = 3
 OPPONENTS: list[tuple[str, type]] = []
 
@@ -49,7 +49,7 @@ def objective(trial: optuna.Trial) -> float:
         trial: Optuna trial object.
 
     Returns:
-        Aggregate win rate (0.0–1.0) across all opponents.
+        Aggregate win rate (0.0, –1.0) across all opponents.
     """
     _init_opponents()
     weights = {
@@ -66,6 +66,7 @@ def objective(trial: optuna.Trial) -> float:
         "w_status_para":     trial.suggest_float("w_status_para",     5.0, 80.0),
         "w_status_poison":   trial.suggest_float("w_status_poison",   5.0, 80.0),
         "w_status_toxic":    trial.suggest_float("w_status_toxic",    5.0, 80.0),
+        "w_lookahead":       trial.suggest_float("w_lookahead",       0.01, 0.50),
     }
 
     total_wins = 0

@@ -38,6 +38,7 @@ class BattleWeights(BaseModel):
     w_status_para: float = Field(default=20.0, ge=0.0, description="Paralysis status value weight")
     w_status_poison: float = Field(default=15.0, ge=0.0, description="Poison status value weight")
     w_status_toxic: float = Field(default=25.0, ge=0.0, description="Toxic status value weight")
+    w_lookahead: float = Field(default=0.15, ge=0.0, le=1.0, description="Board position evaluator weight")
 
 
 class SelectionConfig(BaseModel):
