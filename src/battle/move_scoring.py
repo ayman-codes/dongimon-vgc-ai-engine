@@ -57,9 +57,6 @@ def score_offensive_move(
     base_power = float(move_const.base_power)
     is_status_category = is_status_move(move_const.category)
 
-    if base_power == 0 and not is_status_category:
-        base_power = 10
-
     if not is_status_category and base_power > 0:
         actual_damage_dealt = calculate_damage(
             params=params,
@@ -318,6 +315,7 @@ def estimate_incoming_threat(
     opponent_actives: list,
     state: StateView,
     params: BattleRuleParam,
+    locked_moves: dict[int, str] | None = None,
 ) -> tuple[float, bool]:
     """Estimate maximum likely incoming damage to a Pokemon this turn.
 
@@ -325,11 +323,16 @@ def estimate_incoming_threat(
     from the opponent's species movepool. Returns the sum of the
     best damage from each opponent, and whether a KO is likely.
 
+    When an opponent slot has a locked move (detected by choice lock
+    tracking), only that move is evaluated for that slot.
+
     Args:
         my_pokemon: The defending Pokemon view.
         opponent_actives: List of opponent active Pokemon views.
         state: Current battle state view.
         params: Battle rule parameters.
+        locked_moves: Dict mapping opponent slot index to their
+            Choice-locked move name. Only that move is evaluated.
 
     Returns:
         Tuple of (max_total_damage, is_likely_ko). max_total_damage is
@@ -341,34 +344,56 @@ def estimate_incoming_threat(
     max_total = 0.0
     any_single_can_ko = False
 
-    for opp_pkm in opponent_actives:
+    for opp_idx, opp_pkm in enumerate(opponent_actives):
         if not opp_pkm or opp_pkm.hp <= 0:
             continue
 
+        lock_name = locked_moves.get(opp_idx) if locked_moves else None
         highest_damage = 0.0
 
-        if opp_pkm.battling_moves:
-            for opp_move in opp_pkm.battling_moves:
-                if (
-                    opp_move.constants.category == Category.OTHER
-                    or opp_move.constants.base_power == 0
-                    or opp_move.pp <= 0
-                    or opp_move.disabled
-                ):
-                    continue
+        if lock_name:
+            if opp_pkm.battling_moves:
+                for opp_move in opp_pkm.battling_moves:
+                    if opp_move.constants.name != lock_name:
+                        continue
+                    if (
+                        opp_move.constants.category == Category.OTHER
+                        or opp_move.constants.base_power == 0
+                        or opp_move.pp <= 0
+                        or opp_move.disabled
+                    ):
+                        continue
+                    dmg = calculate_damage(
+                        params=params, attacking_side=1, move=opp_move.constants,
+                        state=state, attacker=opp_pkm, defender=my_pokemon,
+                    )
+                    highest_damage = max(highest_damage, dmg)
+            if highest_damage == 0.0:
+                max_total += 0.0
+                continue
+        else:
+            if opp_pkm.battling_moves:
+                for opp_move in opp_pkm.battling_moves:
+                    if (
+                        opp_move.constants.category == Category.OTHER
+                        or opp_move.constants.base_power == 0
+                        or opp_move.pp <= 0
+                        or opp_move.disabled
+                    ):
+                        continue
 
-                dmg = calculate_damage(
-                    params=params,
-                    attacking_side=1,
-                    move=opp_move.constants,
-                    state=state,
-                    attacker=opp_pkm,
-                    defender=my_pokemon,
-                )
-                if dmg > highest_damage:
-                    highest_damage = dmg
+                    dmg = calculate_damage(
+                        params=params,
+                        attacking_side=1,
+                        move=opp_move.constants,
+                        state=state,
+                        attacker=opp_pkm,
+                        defender=my_pokemon,
+                    )
+                    if dmg > highest_damage:
+                        highest_damage = dmg
 
-        if (
+        if not lock_name and (
             opp_pkm.constants
             and hasattr(opp_pkm.constants, "species")
             and opp_pkm.constants.species

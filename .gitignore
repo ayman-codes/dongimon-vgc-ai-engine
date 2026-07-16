@@ -23,3 +23,12 @@ context/
 __pycache__/
 __pycache__/*
 __pycache__/competitor.cpython-314.pyc
+
+# Mlflow
+mlruns/
+mlflow.db
+
+# optuna
+optuna_study.db
+__pycache__/competitor.cpython-314.pyc
+data/

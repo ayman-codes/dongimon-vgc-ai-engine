@@ -97,7 +97,7 @@ def run_battles(
 
 def main():
     seed = 42
-    n_battles = 10
+    n_battles = 125
     rng = np.random.default_rng(seed)
 
     print("Generating shared team...", end=" ", flush=True)

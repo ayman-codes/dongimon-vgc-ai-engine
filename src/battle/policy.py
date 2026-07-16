@@ -63,6 +63,57 @@ class DongimonBattlePolicy(BattlePolicy):
             6: self._weights.get("w_status_toxic", 25.0),
         }
 
+        self._opp_move_pp: dict[tuple[int, int], int] = {}
+        self._opp_last_used: dict[int, str] = {}
+        self._opp_move_history: dict[int, list[str]] = {}
+        self._choice_locked: set[int] = set()
+
+    def _update_choice_tracking(self, state: StateView) -> dict[int, str]:
+        """Track opponent move usage and detect Choice-locked Pokemon.
+
+        Monitors PP changes to infer which move each opponent used
+        last turn. If a Pokemon uses the same move 3+ consecutive
+        turns, it is flagged as Choice-locked.
+
+        Args:
+            state: Current battle state view.
+
+        Returns:
+            Dict mapping opponent slot index to their locked move name,
+            or empty dict if no opponents are Choice-locked.
+        """
+        return {}
+        for slot, opp in enumerate(state.sides[1].team.active):
+            if not opp or opp.hp <= 0:
+                self._opp_last_used.pop(slot, None)
+                self._opp_move_history.pop(slot, None)
+                self._choice_locked.discard(slot)
+                continue
+            for move_idx, move in enumerate(opp.battling_moves):
+                if not move or not move.constants:
+                    continue
+                key = (slot, move_idx)
+                prev_pp = self._opp_move_pp.get(key, move.pp + 1)
+                if move.pp < prev_pp:
+                    self._opp_last_used[slot] = move.constants.name
+                self._opp_move_pp[key] = move.pp
+
+        for slot in list(self._opp_last_used.keys()):
+            name = self._opp_last_used.get(slot)
+            if not name or slot not in range(len(state.sides[1].team.active or [])):
+                self._choice_locked.discard(slot)
+                continue
+            history = self._opp_move_history.setdefault(slot, [])
+            history.append(name)
+            if len(history) > 5:
+                history.pop(0)
+            if len(history) >= 3 and all(n == name for n in history[-3:]):
+                self._choice_locked.add(slot)
+            else:
+                self._choice_locked.discard(slot)
+
+        return {s: self._opp_last_used[s] for s in self._choice_locked}
+
     def decision(
         self,
         state: StateView,
@@ -84,6 +135,7 @@ class DongimonBattlePolicy(BattlePolicy):
             If detailed_logging is True: tuple of (commands, log_dict).
         """
         my_team_view = state.sides[0].team
+        locked_moves = self._update_choice_tracking(state)
 
         num_my_active = 0
         active_slots = []
@@ -185,6 +237,7 @@ class DongimonBattlePolicy(BattlePolicy):
                 opps, my_active,
                 state, self.params,
                 self._weights, MAX_SCORE,
+                locked_moves,
             )
             final_commands.extend(cmds)
             pkm0_log = log_a

@@ -16,6 +16,8 @@ from src.battle.move_scoring import (
     identify_biggest_threat,
 )
 
+BOARD_WEIGHT = 0.15
+
 
 def evaluate_joint_actions(
     actions_slot_a: list,
@@ -28,6 +30,7 @@ def evaluate_joint_actions(
     params: BattleRuleParam,
     weights: dict[str, float],
     max_score: float,
+    locked_moves: dict[int, str] | None = None,
 ) -> tuple[list, dict, dict, float]:
     """Evaluate all joint action pairs and select the best.
 
@@ -47,6 +50,7 @@ def evaluate_joint_actions(
         params: Battle rule parameters.
         weights: Dictionary of synergy weight values.
         max_score: Maximum individual score constant.
+        locked_moves: Dict mapping opponent slot to their Choice-locked move name.
 
     Returns:
         Tuple of (final_commands, log_a, log_b, joint_score).
@@ -66,10 +70,10 @@ def evaluate_joint_actions(
         biggest_threat_pkm, biggest_threat_slot = biggest_threat_info
 
     threat_a_undefended, pkm_a_ko_by_threat = estimate_incoming_threat(
-        my_pkm_a, opp_active_list, state, params
+        my_pkm_a, opp_active_list, state, params, locked_moves,
     )
     threat_b_undefended, pkm_b_ko_by_threat = estimate_incoming_threat(
-        my_pkm_b, opp_active_list, state, params
+        my_pkm_b, opp_active_list, state, params, locked_moves,
     )
 
     raw_a: list[float] = []
@@ -81,6 +85,7 @@ def evaluate_joint_actions(
     raw_od: list[float] = []
     raw_su: list[float] = []
     raw_ev: list[float] = []
+    raw_bp: list[float] = []
     pair_info: list[tuple] = []
 
     for cmd_a_info in actions_slot_a:
@@ -108,6 +113,7 @@ def evaluate_joint_actions(
                 my_pkm_b, opp_active_list, is_ko_a, move_a_const, cmd_a_target,
                 is_move_b, move_b_const, threat_b_undefended, pkm_b_ko_by_threat,
                 biggest_threat_pkm, biggest_threat_slot, max_score, state, params,
+                locked_moves,
             )
 
             ff = _focus_fire_wrapper(
@@ -121,7 +127,7 @@ def evaluate_joint_actions(
                 is_ko_a, is_ko_b, move_a_const, move_b_const,
                 cmd_a_target, cmd_b_target, is_move_a, is_move_b,
                 biggest_threat_pkm, biggest_threat_slot,
-                my_active_list, state, params,
+                my_active_list, state, params, locked_moves,
             )
 
             od = _off_def_support(
@@ -140,6 +146,20 @@ def evaluate_joint_actions(
                 my_pkm_a, my_pkm_b, state,
             )
 
+            my_alive_after = sum(1 for p in my_active_list if p and p.hp > 0)
+            opp_alive_after = sum(1 for p in opp_active_list if p and p.hp > 0)
+            if (
+                is_ko_a and cmd_a_target >= 0 and cmd_a_target < len(opp_active_list)
+                and opp_active_list[cmd_a_target] and opp_active_list[cmd_a_target].hp > 0
+            ):
+                opp_alive_after -= 1
+            if (
+                is_ko_b and cmd_b_target >= 0 and cmd_b_target < len(opp_active_list)
+                and opp_active_list[cmd_b_target] and opp_active_list[cmd_b_target].hp > 0
+            ):
+                opp_alive_after -= 1
+            bp_score = float(my_alive_after - opp_alive_after)
+
             raw_a.append(score_a)
             raw_b.append(score_b)
             raw_s1.append(sv_a)
@@ -149,6 +169,7 @@ def evaluate_joint_actions(
             raw_od.append(od)
             raw_su.append(su)
             raw_ev.append(ev)
+            raw_bp.append(bp_score)
             pair_info.append((cmd_a, cmd_b, is_ko_a, is_ko_b))
 
     comp_max = {
@@ -160,6 +181,7 @@ def evaluate_joint_actions(
         "od": max(raw_od) if raw_od else 1.0,
         "su": max(raw_su) if raw_su else 1.0,
         "ev": max(raw_ev) if raw_ev else 1.0,
+        "bp": max(abs(v) for v in raw_bp) if raw_bp else 1.0,
     }
 
     def _div(v: float, m: float) -> float:
@@ -175,6 +197,7 @@ def evaluate_joint_actions(
         n_od = _div(raw_od[idx], comp_max["od"])
         n_su = _div(raw_su[idx], comp_max["su"])
         n_ev = _div(raw_ev[idx], comp_max["ev"])
+        n_bp = _div(raw_bp[idx], comp_max["bp"])
 
         joint = (
             n_a * weights.get("w_base_score_a", 0.05)
@@ -185,6 +208,7 @@ def evaluate_joint_actions(
             + n_od * weights.get("w_off_def_support", 0.02)
             + n_su * weights.get("w_setup_synergy", 0.18)
             + n_ev * weights.get("w_env_synergy", 0.02)
+            + n_bp * BOARD_WEIGHT
         )
 
         if joint > best_joint:
@@ -268,6 +292,7 @@ def _survival_impact_b(
     max_score: float,
     state: StateView,
     params: BattleRuleParam,
+    locked_moves: dict[int, str] | None = None,
 ) -> float:
     """Compute survival impact for Pokemon B, adjusted for A's KO.
 
@@ -303,7 +328,7 @@ def _survival_impact_b(
     if not effective_opponents:
         threat_adjusted = 0.0
     else:
-        threat_adjusted, _ = estimate_incoming_threat(pkm_b, effective_opponents, state, params)
+        threat_adjusted, _ = estimate_incoming_threat(pkm_b, effective_opponents, state, params, locked_moves)
 
     dmg_taken = threat_adjusted
     if is_move_b and move_b_const and move_b_const.protect or not is_move_b:
@@ -400,6 +425,7 @@ def _target_priority(
     my_active_list: list,
     state: StateView,
     params: BattleRuleParam,
+    locked_moves: dict[int, str] | None = None,
 ) -> float:
     """Compute bonus for KOing the biggest threat.
 
@@ -417,6 +443,7 @@ def _target_priority(
         my_active_list: Our active Pokemon views.
         state: Current battle state view.
         params: Battle rule parameters.
+        locked_moves: Dict mapping opponent slot to their Choice-locked move name.
 
     Returns:
         Bonus float for KOing the biggest threat.
@@ -443,7 +470,7 @@ def _target_priority(
     bonus = 450.0
     for my_pkm in my_active_list:
         if my_pkm and my_pkm.hp > 0:
-            _, ko_my = estimate_incoming_threat(my_pkm, [biggest_threat_pkm], state, params)
+            _, ko_my = estimate_incoming_threat(my_pkm, [biggest_threat_pkm], state, params, locked_moves)
             if ko_my:
                 bonus += 75.0 * 1.7
                 break
