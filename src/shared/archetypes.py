@@ -4,12 +4,13 @@ Produces fully-formed Pokemon objects with competitive EV spreads,
 natures, and move sets. Used by both Selection and Teambuild policies.
 """
 
+from typing import Any
 
 from vgc2.battle_engine.modifiers import Nature, Stat
 from vgc2.battle_engine.pokemon import Pokemon, PokemonSpecies
 
 
-def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list) -> list[tuple[str, Pokemon]]:
+def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any]) -> list[tuple[str, Pokemon]]:
     """Generate a list of competitive builds for a species, each tagged with an archetype name.
 
     Produces up to 10 builds: fast sweeper (physical/special), bulky attacker
@@ -42,17 +43,15 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list) ->
     is_phys = base_stats[Stat.ATTACK] >= base_stats[Stat.SPECIAL_ATTACK]
     lv = 50
 
-    def _make(name, evs, nature):
+    def _make(name: str, evs: tuple[int, ...], nature: int) -> None:
         builds.append((name, Pokemon(species, move_indices, lv, evs, ivs, nature)))
 
     _make("Fast Physical Sweeper", (4, 252, 0, 0, 0, 252), Nature.JOLLY)
     _make("Fast Special Sweeper", (4, 0, 0, 252, 0, 252), Nature.TIMID)
     _make("Bulky Physical Attacker", (252, 252, 4, 0, 0, 0), Nature.ADAMANT)
     _make("Bulky Special Attacker", (252, 0, 4, 252, 0, 0), Nature.MODEST)
-    _make("Physically Defensive Wall", (252, 0, 252, 0, 4, 0),
-          Nature.IMPISH if is_phys else Nature.BOLD)
-    _make("Specially Defensive Wall", (252, 0, 4, 0, 252, 0),
-          Nature.CAREFUL if is_phys else Nature.CALM)
+    _make("Physically Defensive Wall", (252, 0, 252, 0, 4, 0), Nature.IMPISH if is_phys else Nature.BOLD)
+    _make("Specially Defensive Wall", (252, 0, 4, 0, 252, 0), Nature.CAREFUL if is_phys else Nature.CALM)
 
     if abs(base_stats[Stat.ATTACK] - base_stats[Stat.SPECIAL_ATTACK]) <= 20:
         _make("Fast Mixed Attacker", (0, 252, 0, 4, 0, 252), Nature.NAIVE)

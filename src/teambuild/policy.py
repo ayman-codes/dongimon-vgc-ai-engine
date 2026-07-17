@@ -7,6 +7,8 @@ stat diversity, role diversity).
 Stage 3: Battle royale simulation tournament for final validation.
 """
 
+from typing import Any
+
 from numpy.random import default_rng
 from vgc2.agent import TeamBuildPolicy
 from vgc2.balance.meta import Meta, Roster
@@ -18,7 +20,7 @@ from src.teambuild.builds import create_single_optimal_build, species_power
 from src.teambuild.evolution import run_evolution
 
 
-class HesfTeamBuildPolicy(TeamBuildPolicy):
+class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
     """Three-stage team building pipeline.
 
     Stage 1 builds one optimal Pokemon per species (minimon-style role
@@ -38,7 +40,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):
         max_team_size: int,
         max_pkm_moves: int,
         n_active: int,
-    ) -> list:
+    ) -> list[Any]:
         """Build a team from the roster.
 
         Args:
@@ -63,7 +65,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):
 
         viability = {s: species_power(s) for s in builds_cache}
 
-        sorted_species = sorted(viability, key=viability.get, reverse=True)
+        sorted_species = sorted(viability, key=lambda s: viability[s], reverse=True)
 
         if not cfg.enable_evolution:
             top_species = sorted_species[:max_team_size]
@@ -110,11 +112,11 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):
 
     def _build_commands(
         self,
-        selected: list,
+        selected: list[Any],
         roster: Roster,
-        builds_cache: dict,
+        builds_cache: dict[Any, Any],
         max_pkm_moves: int,
-    ) -> list:
+    ) -> list[Any]:
         """Convert selected species to a TeamBuildCommand.
 
         Args:
@@ -132,10 +134,9 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):
             build = builds_cache.get(species)
             if build is None:
                 continue
-            move_indices = [
-                build.species.moves.index(m) for m in build.moves
-                if m in build.species.moves
-            ][:max_pkm_moves]
+            move_indices = [build.species.moves.index(m) for m in build.moves if m in build.species.moves][
+                :max_pkm_moves
+            ]
             cmd = (roster_index, build.evs, build.ivs, build.nature, move_indices)
             commands.append(cmd)
         return commands

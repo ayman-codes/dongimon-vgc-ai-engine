@@ -6,6 +6,7 @@ GreedyBattlePolicy to determine the empirically strongest team.
 """
 
 import time
+from typing import Any
 
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.battle_engine import BattleEngine, BattleRuleParam
@@ -17,9 +18,9 @@ from vgc2.util.rng import ZERO_RNG
 
 def run_battle_royale(
     top_teams: list[list[int]],
-    builds_cache: dict,
-    pool_species: list,
-    roster: list,
+    builds_cache: dict[Any, Any],
+    pool_species: list[Any],
+    roster: list[Any],
     n_battles: int,
     max_time_sec: float,
     params: BattleRuleParam,
@@ -99,7 +100,7 @@ def run_battle_royale(
     if all(v == 0 for v in wins.values()):
         return top_teams[0]
 
-    def _win_rate(x):
+    def _win_rate(x: tuple[list[int], list[Any]]) -> float:
         w = wins.get(id(x[0]), 0)
         loss = losses.get(id(x[0]), 0)
         return w / max(w + loss, 1)

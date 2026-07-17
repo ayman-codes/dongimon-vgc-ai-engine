@@ -7,6 +7,7 @@ RandomSelection, and RandomTeambuild policies.
 
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -18,7 +19,7 @@ from vgc2.competition.match import Match
 from vgc2.util.generator import gen_team
 
 
-class BaselineCompetitor(Competitor):
+class BaselineCompetitor(Competitor):  # type: ignore[misc]
     """Competitor using only vgc2 built-in policies."""
 
     def __init__(self, name: str = "Baseline"):
@@ -32,15 +33,15 @@ class BaselineCompetitor(Competitor):
         return self._name
 
     @property
-    def battlepolicy(self):
+    def battlepolicy(self) -> Any:
         return self._bp
 
     @property
-    def selectionpolicy(self):
+    def selectionpolicy(self) -> Any:
         return self._sp
 
     @property
-    def teambuildpolicy(self):
+    def teambuildpolicy(self) -> Any:
         return self._tp
 
 

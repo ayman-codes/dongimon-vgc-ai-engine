@@ -14,9 +14,24 @@ from src.shared.types import type_effectiveness, vgc2_type_to_name
 from src.teambuild.builds import species_role
 
 VGC2_TYPE_ORDER = [
-    Type.NORMAL, Type.FIRE, Type.WATER, Type.ELECTRIC, Type.GRASS, Type.ICE,
-    Type.FIGHT, Type.POISON, Type.GROUND, Type.FLYING, Type.PSYCHIC, Type.BUG,
-    Type.ROCK, Type.GHOST, Type.DRAGON, Type.DARK, Type.STEEL, Type.FAIRY,
+    Type.NORMAL,
+    Type.FIRE,
+    Type.WATER,
+    Type.ELECTRIC,
+    Type.GRASS,
+    Type.ICE,
+    Type.FIGHT,
+    Type.POISON,
+    Type.GROUND,
+    Type.FLYING,
+    Type.PSYCHIC,
+    Type.BUG,
+    Type.ROCK,
+    Type.GHOST,
+    Type.DRAGON,
+    Type.DARK,
+    Type.STEEL,
+    Type.FAIRY,
 ]
 
 TYPE_NAMES = [vgc2_type_to_name(t.value) for t in VGC2_TYPE_ORDER]
@@ -39,12 +54,12 @@ def _type_name(t: Any) -> str:
 
 
 def init_population(
-    pool_species: list,
+    pool_species: list[Any],
     team_size: int,
     pop_size: int,
-    viability_scores: dict,
+    viability_scores: dict[Any, float],
     rng: Any,
-) -> list:
+) -> list[list[int]]:
     """Initialise a population of random teams from the species pool.
 
     Sampling is weighted by each species' viability score so that
@@ -75,8 +90,8 @@ def init_population(
 def crossover(
     parent_a: list[int],
     parent_b: list[int],
-    pool_species: list,
-    viability_scores: dict,
+    pool_species: list[Any],
+    viability_scores: dict[Any, float],
     rng: Any,
 ) -> tuple[list[int], list[int]]:
     """Single-point crossover with deduplication.
@@ -108,8 +123,8 @@ def crossover(
 
 def _deduplicate(
     team: list[int],
-    pool_species: list,
-    viability_scores: dict,
+    pool_species: list[Any],
+    viability_scores: dict[Any, float],
     rng: Any,
 ) -> list[int]:
     """Remove duplicate indices from a team, replacing with unused species.
@@ -143,8 +158,8 @@ def _deduplicate(
 
 def _pick_best_unused(
     unused: list[int],
-    viability_scores: dict,
-    pool_species: list,
+    viability_scores: dict[Any, float],
+    pool_species: list[Any],
     rng: Any,
 ) -> int:
     """Pick from unused indices, weighted by viability.
@@ -168,8 +183,8 @@ def mutate_team(
     team: list[int],
     pool_size: int,
     mutation_rate: float,
-    viability_scores: dict,
-    pool_species: list,
+    viability_scores: dict[Any, float],
+    pool_species: list[Any],
     rng: Any,
 ) -> list[int]:
     """Per-position mutation with species uniqueness constraint.
@@ -214,8 +229,8 @@ def mutate_team(
 
 def _weighted_pool(
     indices: list[int],
-    viability_scores: dict,
-    pool_species: list,
+    viability_scores: dict[Any, float],
+    pool_species: list[Any],
 ) -> list[int]:
     """Create a weighted duplicate-reduced pool for mutation selection.
 
@@ -240,8 +255,8 @@ def _weighted_pool(
 
 def calculate_team_fitness(
     team_indices: list[int],
-    pool_species: list,
-    viability_scores: dict,
+    pool_species: list[Any],
+    viability_scores: dict[Any, float],
 ) -> float:
     """Compute fitness for a team of 6 species.
 
@@ -272,7 +287,7 @@ def calculate_team_fitness(
     return 0.30 * v + 0.25 * tc + 0.25 * td + 0.10 * sd + 0.10 * rd
 
 
-def _fitness_viability(members: list, viability_scores: dict) -> float:
+def _fitness_viability(members: list[Any], viability_scores: dict[Any, float]) -> float:
     """Sum of species power normalised by max possible.
 
     Args:
@@ -287,7 +302,7 @@ def _fitness_viability(members: list, viability_scores: dict) -> float:
     return min(total / max_possible, 1.0)
 
 
-def _fitness_type_coverage(members: list) -> float:
+def _fitness_type_coverage(members: list[Any]) -> float:
     """Fraction of 18 types hit super-effectively by the team.
 
     Args:
@@ -312,7 +327,7 @@ def _fitness_type_coverage(members: list) -> float:
     return len(covered) / 18.0 if len(covered) else 0.0
 
 
-def _fitness_type_defence(members: list) -> float:
+def _fitness_type_defence(members: list[Any]) -> float:
     """Fraction of team weaknesses that are resisted or immunised by an ally.
 
     For each member's defensive weaknesses, checks if any other member
@@ -348,7 +363,7 @@ def _fitness_type_defence(members: list) -> float:
     return covered_weaknesses / max(total_weaknesses, 1)
 
 
-def _fitness_stat_diversity(members: list) -> float:
+def _fitness_stat_diversity(members: list[Any]) -> float:
     """Stat diversity score.
 
     Checks for a mix of physical and special attackers, and a mix of
@@ -361,13 +376,11 @@ def _fitness_stat_diversity(members: list) -> float:
         Diversity score (0–1).
     """
     has_phys = any(
-        any(m.category in (Category.PHYSICAL, Category.PHYSICAL.value) and m.base_power > 0
-            for m in species.moves)
+        any(m.category in (Category.PHYSICAL, Category.PHYSICAL.value) and m.base_power > 0 for m in species.moves)
         for species in members
     )
     has_spec = any(
-        any(m.category in (Category.SPECIAL, Category.SPECIAL.value) and m.base_power > 0
-            for m in species.moves)
+        any(m.category in (Category.SPECIAL, Category.SPECIAL.value) and m.base_power > 0 for m in species.moves)
         for species in members
     )
 
@@ -386,7 +399,7 @@ def _fitness_stat_diversity(members: list) -> float:
     return score
 
 
-def _fitness_role_diversity(members: list) -> float:
+def _fitness_role_diversity(members: list[Any]) -> float:
     """Role diversity score.
 
     Rewards having at least one sweeper, one wall, and one mixed role.

@@ -8,6 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from typing import Any
+
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.agent.selection import BasicSelectionPolicy
@@ -21,32 +23,36 @@ from vgc2.util.generator import gen_team
 from competitor import DongimonCompetitor
 
 
-def _greedy_baseline():
-    class GreedyBaseline(Competitor):
+def _greedy_baseline() -> Any:
+    class GreedyBaseline(Competitor):  # type: ignore[misc]
         @property
-        def name(self):
+        def name(self) -> str:
             return "Greedy"
+
         @property
-        def battlepolicy(self):
+        def battlepolicy(self) -> Any:
             return GreedyBattlePolicy()
+
         @property
-        def selectionpolicy(self):
+        def selectionpolicy(self) -> Any:
             return None
+
         @property
-        def teambuildpolicy(self):
+        def teambuildpolicy(self) -> Any:
             return None
+
     return GreedyBaseline()
 
 
 def run_battles(
-    battle_policy_a,
-    battle_policy_b,
-    base_team,
-    base_view,
-    selection_policy_a,
-    selection_policy_b,
-    n_battles,
-    params,
+    battle_policy_a: Any,
+    battle_policy_b: Any,
+    base_team: Any,
+    base_view: Any,
+    selection_policy_a: Any,
+    selection_policy_b: Any,
+    n_battles: int,
+    params: Any,
 ) -> tuple[int, int]:
     """Run N battles between two policies using the same team pool.
 
@@ -95,7 +101,7 @@ def run_battles(
     return wins_a, wins_b
 
 
-def main():
+def main() -> None:
     seed = 42
     n_battles = 125
     rng = np.random.default_rng(seed)
@@ -110,9 +116,9 @@ def main():
     params = BattleRuleParam()
 
     opponents = [
-        ("Greedy",       _greedy_baseline),
-        ("JJJ",          _import("competitors.competitor1_jjj", "JJJ_Competitor")),
-        ("minimon",      _import("competitors.competitor2_minimon", "minimon")),
+        ("Greedy", _greedy_baseline),
+        ("JJJ", _import("competitors.competitor1_jjj", "JJJ_Competitor")),
+        ("minimon", _import("competitors.competitor2_minimon", "minimon")),
         ("StocKarpador", _import("competitors.competitor3_stockarpador", "StocKarpadorCompetitor")),
     ]
 
@@ -127,9 +133,12 @@ def main():
         dw, ow = run_battles(
             dongimon.battlepolicy,
             opp.battlepolicy,
-            shared_team, shared_view,
-            basic_sel, basic_sel,
-            n_battles, params,
+            shared_team,
+            shared_view,
+            basic_sel,
+            basic_sel,
+            n_battles,
+            params,
         )
         dt = time.perf_counter() - t0
         pct = dw / max(dw + ow, 1) * 100
@@ -137,8 +146,9 @@ def main():
         print(f"Winner: {winner:>12} ({pct:5.1f}%)  [{dt:.0f}s]")
 
 
-def _import(module_path: str, class_name: str):
+def _import(module_path: str, class_name: str) -> Any:
     import importlib
+
     mod = importlib.import_module(module_path)
     return getattr(mod, class_name)
 

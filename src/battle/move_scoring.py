@@ -174,7 +174,8 @@ def score_offensive_move(
     utility_score += healing_utility
 
     if (
-        not is_ko_potential and move_const.max_pp > 0
+        not is_ko_potential
+        and move_const.max_pp > 0
         and (move.pp / move_const.max_pp) < PP_PENALTY_RATIO
         and action_score < PP_PENALTY_THRESHOLD
     ):
@@ -222,7 +223,7 @@ def score_protect_move(
     estimated_damage_blocked, _ = estimate_incoming_threat(protector, state.sides[1].team.active, state, params)
     protect_score = estimated_damage_blocked
 
-    net_passive = 0
+    net_passive = 0.0
     for opp_pkm in state.sides[1].team.active:
         if not opp_pkm or opp_pkm.hp <= 0:
             continue
@@ -248,13 +249,13 @@ def score_protect_move(
     protect_accuracy = move.constants.accuracy if move.constants.accuracy is not None else DEFAULT_ACCURACY
     protect_reliability = protect_accuracy * protect_modifier(params, move.constants, protector)
 
-    return protect_score * protect_reliability
+    return protect_score * protect_reliability  # type: ignore[no-any-return]
 
 
 def score_switch_action(
     current_pkm: BattlingPokemonView,
     reserve_pkm: BattlingPokemonView,
-    opponent_actives: list,
+    opponent_actives: list[Any],
     state: StateView,
     params: BattleRuleParam,
     avg_move_score: float = DEFAULT_AVG_MOVE_SCORE,
@@ -286,14 +287,14 @@ def score_switch_action(
     if num_opponents == 0:
         return switch_score
 
-    total_resistance_score = 0
+    total_resistance_score = 0.0
     is_strong_defensive_pivot = False
 
     for opp_pkm in opponent_actives:
         if not opp_pkm or opp_pkm.hp <= 0:
             continue
 
-        resistance = 0
+        resistance = 0.0
         best_resist = 1.0
 
         for opp_stab_type in opp_pkm.types:
@@ -317,7 +318,7 @@ def score_switch_action(
 
     switch_score += total_resistance_score
 
-    total_offensive_score = 0
+    total_offensive_score = 0.0
     is_strong_offensive_threat = False
 
     if reserve_pkm.constants and reserve_pkm.constants.moves:
@@ -336,9 +337,9 @@ def score_switch_action(
                 max_eff = max(max_eff, eff)
 
                 if eff >= TYPE_EFF_QUAD_SUPER:
-                    off_contrib = max(off_contrib, OFF_THREAT_QUAD_SCORE)
+                    off_contrib = max(off_contrib, OFF_THREAT_QUAD_SCORE)  # type: ignore[assignment]
                 elif eff >= TYPE_EFF_SUPER:
-                    off_contrib = max(off_contrib, OFF_THREAT_DOUBLE_SCORE)
+                    off_contrib = max(off_contrib, OFF_THREAT_DOUBLE_SCORE)  # type: ignore[assignment]
 
             total_offensive_score += off_contrib / num_opponents
             if max_eff >= STRONG_OFFENSIVE_TYPE_THRESHOLD:
@@ -357,9 +358,7 @@ def score_switch_action(
         switch_score -= sr_damage
 
     if state.sides[0].conditions.poison_spikes:
-        is_immune = any(
-            t in (Type.POISON, Type.STEEL, Type.FLYING) for t in reserve_pkm.types
-        )
+        is_immune = any(t in (Type.POISON, Type.STEEL, Type.FLYING) for t in reserve_pkm.types)
         if not is_immune and reserve_pkm.status == Status.NONE:
             poison_dmg = calculate_poison_damage(params, reserve_pkm)
             switch_score -= poison_dmg
@@ -369,7 +368,7 @@ def score_switch_action(
 
 def estimate_incoming_threat(
     my_pokemon: BattlingPokemonView,
-    opponent_actives: list,
+    opponent_actives: list[Any],
     state: StateView,
     params: BattleRuleParam,
     locked_moves: dict[int, str] | None = None,
@@ -421,8 +420,12 @@ def estimate_incoming_threat(
                     ):
                         continue
                     dmg = calculate_damage(
-                        params=params, attacking_side=1, move=opp_move.constants,
-                        state=state, attacker=opp_pkm, defender=my_pokemon,
+                        params=params,
+                        attacking_side=1,
+                        move=opp_move.constants,
+                        state=state,
+                        attacker=opp_pkm,
+                        defender=my_pokemon,
                     )
                     highest_damage = max(highest_damage, dmg)
             if highest_damage == 0.0:
@@ -496,7 +499,7 @@ def estimate_incoming_threat(
 
 def _priority_threat_delta(
     my_pokemon: BattlingPokemonView,
-    opponent_actives: list,
+    opponent_actives: list[Any],
     state: StateView,
     params: BattleRuleParam,
 ) -> float:
@@ -517,16 +520,14 @@ def _priority_threat_delta(
         Additional damage that must be accounted for due to priority.
     """
     our_has_priority = any(
-        mv.constants.priority > 0
-        for mv in (my_pokemon.battling_moves or [])
-        if mv and mv.pp > 0 and not mv.disabled
+        mv.constants.priority > 0 for mv in (my_pokemon.battling_moves or []) if mv and mv.pp > 0 and not mv.disabled
     )
 
     max_priority_dmg = 0.0
     for opp_pkm in opponent_actives:
         if not opp_pkm or opp_pkm.hp <= 0:
             continue
-        for opp_move in (opp_pkm.battling_moves or []):
+        for opp_move in opp_pkm.battling_moves or []:
             if (
                 not opp_move
                 or opp_move.constants.priority <= 0
@@ -537,8 +538,12 @@ def _priority_threat_delta(
             ):
                 continue
             dmg = calculate_damage(
-                params=params, attacking_side=1, move=opp_move.constants,
-                state=state, attacker=opp_pkm, defender=my_pokemon,
+                params=params,
+                attacking_side=1,
+                move=opp_move.constants,
+                state=state,
+                attacker=opp_pkm,
+                defender=my_pokemon,
             )
             if dmg > max_priority_dmg:
                 max_priority_dmg = dmg
@@ -549,11 +554,11 @@ def _priority_threat_delta(
 
 
 def identify_biggest_threat(
-    opponent_actives: list,
-    my_team_actives: list,
+    opponent_actives: list[Any],
+    my_team_actives: list[Any],
     state: StateView,
     params: BattleRuleParam,
-) -> tuple | None:
+) -> tuple[Any, ...] | None:
     """Identify the single most threatening opponent active Pokemon.
 
     Combines offensive potential against our team, presence of
@@ -595,13 +600,13 @@ def identify_biggest_threat(
                             and not opp_move.disabled
                             and opp_move.constants.pkm_type in opp_pkm.types
                         ):
-                                eff = _get_type_eff_string(opp_move.constants.pkm_type, my_pkm.types)
-                                acc = (
-                                    opp_move.constants.accuracy
-                                    if opp_move.constants.accuracy is not None
-                                    else DEFAULT_ACCURACY
-                                )
-                                temp_highest = max(temp_highest, opp_move.constants.base_power * eff * acc)
+                            eff = _get_type_eff_string(opp_move.constants.pkm_type, my_pkm.types)
+                            acc = (
+                                opp_move.constants.accuracy
+                                if opp_move.constants.accuracy is not None
+                                else DEFAULT_ACCURACY
+                            )
+                            temp_highest = max(temp_highest, opp_move.constants.base_power * eff * acc)
 
                 if temp_highest < LOW_DAMAGE_THRESHOLD and opp_pkm.constants and opp_pkm.constants.species:
                     for p_type in opp_pkm.types:
@@ -612,7 +617,7 @@ def identify_biggest_threat(
 
         current_score += max_dmg_to_team
 
-        offensive_boost = 0
+        offensive_boost = 0.0
         if opp_pkm.boosts:
             if opp_pkm.boosts[Stat.ATTACK] > 0:
                 offensive_boost += opp_pkm.boosts[Stat.ATTACK]
@@ -679,12 +684,20 @@ def calculate_focus_fire_bonus(
     combined_ko = False
 
     dmg_a = calculate_damage(
-        params=params, attacking_side=0, move=move_a_const,
-        state=state, attacker=pkm_a_view, defender=target_pkm_view,
+        params=params,
+        attacking_side=0,
+        move=move_a_const,
+        state=state,
+        attacker=pkm_a_view,
+        defender=target_pkm_view,
     )
     dmg_b = calculate_damage(
-        params=params, attacking_side=0, move=move_b_const,
-        state=state, attacker=pkm_b_view, defender=target_pkm_view,
+        params=params,
+        attacking_side=0,
+        move=move_b_const,
+        state=state,
+        attacker=pkm_b_view,
+        defender=target_pkm_view,
     )
     total_focus_dmg = dmg_a + dmg_b
 
@@ -716,7 +729,8 @@ def calculate_focus_fire_bonus(
         return temp
 
     if (
-        initial_hp > 0 and (dmg_a / initial_hp > SUBSTANTIAL_DAMAGE_RATIO)
+        initial_hp > 0
+        and (dmg_a / initial_hp > SUBSTANTIAL_DAMAGE_RATIO)
         and (dmg_b / initial_hp > SUBSTANTIAL_DAMAGE_RATIO)
     ):
         bonus = FF_HEAVY_DAMAGE_BOTH * reliability
@@ -727,7 +741,7 @@ def calculate_focus_fire_bonus(
     return 0.0
 
 
-def _get_type_eff_string(move_type: object, defender_types: list) -> float:
+def _get_type_eff_string(move_type: Any, defender_types: list[Any]) -> float:
     """Get type effectiveness using string names regardless of input type.
 
     Handles both vgc2 Type enum members and lowercase strings internally.
@@ -818,13 +832,19 @@ def _stat_boost_value(
         return 0.0
 
     stat_map = [
-        None, Stat.ATTACK, Stat.DEFENSE, Stat.SPECIAL_ATTACK,
-        Stat.SPECIAL_DEFENSE, Stat.SPEED, Stat.ACCURACY, Stat.EVASION,
+        None,
+        Stat.ATTACK,
+        Stat.DEFENSE,
+        Stat.SPECIAL_ATTACK,
+        Stat.SPECIAL_DEFENSE,
+        Stat.SPEED,
+        Stat.ACCURACY,
+        Stat.EVASION,
     ]
 
     if move.self_boosts:
-        total_before = 0
-        total_after = 0
+        total_before = 0.0
+        total_after = 0.0
 
         best_moves = {}
         for opp_idx, opp_pkm in enumerate(opp_actives):
@@ -858,7 +878,7 @@ def _stat_boost_value(
         boost_value = total_after - total_before
 
     else:
-        total_mitigated = 0
+        total_mitigated = 0.0
         for opp_pkm in opp_actives:
             dmg_before, _ = estimate_incoming_threat(user, [opp_pkm], state, params)
 
@@ -886,8 +906,8 @@ def _stat_boost_value(
 
 def _screen_value(
     move: Move,
-    my_team_actives: list,
-    opponent_actives: list,
+    my_team_actives: list[Any],
+    opponent_actives: list[Any],
     state: StateView,
     params: BattleRuleParam,
 ) -> float:
@@ -912,22 +932,20 @@ def _screen_value(
     is_reflect = move.toggle_reflect
     screen_cat = Category.PHYSICAL if is_reflect else Category.SPECIAL
 
-    if (is_reflect and state.sides[0].conditions.reflect) or (
-        not is_reflect and state.sides[0].conditions.lightscreen
-    ):
+    if (is_reflect and state.sides[0].conditions.reflect) or (not is_reflect and state.sides[0].conditions.lightscreen):
         return SCREEN_REDUNDANCY_PENALTY
 
-    total_mitigated = 0
+    total_mitigated = 0.0
     for my_pkm in my_team_actives:
         if not my_pkm or my_pkm.hp <= 0:
             continue
 
-        threat_to_pkm = 0
+        threat_to_pkm = 0.0
         for opp_pkm in opponent_actives:
             if not opp_pkm or opp_pkm.hp <= 0:
                 continue
 
-            best_opp_dmg = 0
+            best_opp_dmg = 0.0
             for opp_move in opp_pkm.constants.species.moves:
                 if opp_move.category == screen_cat:
                     dmg = calculate_damage(params, 1, opp_move, state, opp_pkm, my_pkm)
@@ -958,7 +976,7 @@ def _hazard_removal_value(state: StateView, params: BattleRuleParam) -> float:
     if not my_conds.stealth_rock and not my_conds.poison_spikes:
         return 0.0
 
-    total_avoided = 0
+    total_avoided = 0.0
     my_reserve = [p for p in state.sides[0].team.reserve if p and p.hp > 0]
 
     for pkm in my_reserve:
@@ -1005,7 +1023,7 @@ def _healing_value(
     incoming_threat, _ = estimate_incoming_threat(user, state.sides[1].team.active, state, params)
 
     if user.hp <= incoming_threat and hp_after > incoming_threat:
-        best_dmg = 0
+        best_dmg = 0.0
         opp_actives = [p for p in state.sides[1].team.active if p and p.hp > 0]
         if opp_actives:
             target = opp_actives[0]
@@ -1016,15 +1034,15 @@ def _healing_value(
                         best_dmg = dmg
         return best_dmg
 
-    return hp_restored
+    return hp_restored  # type: ignore[no-any-return]
 
 
 def _field_setup_move(
     attacker: BattlingPokemonView,
     move: Move,
-    my_team_actives: list,
-    my_team_reserve: list,
-    opponent_actives: list,
+    my_team_actives: list[Any],
+    my_team_reserve: list[Any],
+    opponent_actives: list[Any],
     current_state: StateView,
     params: BattleRuleParam,
 ) -> float:
@@ -1056,7 +1074,7 @@ def _field_setup_move(
     if (new_weather != Weather.CLEAR and new_weather != current_state.weather) or (
         new_terrain != Terrain.NONE and new_terrain != current_state.field
     ):
-        net_swing = 0
+        net_swing = 0.0
         all_active = my_team_actives + opponent_actives
 
         temp_state = State((current_state.sides[0].team, current_state.sides[1].team))
@@ -1098,7 +1116,7 @@ def _field_setup_move(
 
     if move.toggle_trickroom:
         if not current_state.trickroom:
-            net_value = 0
+            net_value = 0.0
             for my_pkm in my_team_actives:
                 for opp_pkm in opponent_actives:
                     if not my_pkm or not opp_pkm:
@@ -1108,7 +1126,7 @@ def _field_setup_move(
                         net_value += threat_to_opp
             setup_score += net_value
         else:
-            net_value = 0
+            net_value = 0.0
             for my_pkm in my_team_actives:
                 for opp_pkm in opponent_actives:
                     if not my_pkm or not opp_pkm:
@@ -1130,10 +1148,8 @@ def _field_setup_move(
         ):
             setup_score += HAZARD_REDUNDANCY_PENALTY
         else:
-            total_hazard_dmg = 0
-            opp_full_team = opponent_actives + [
-                p for p in current_state.sides[1].team.reserve if p and p.hp > 0
-            ]
+            total_hazard_dmg = 0.0
+            opp_full_team = opponent_actives + [p for p in current_state.sides[1].team.reserve if p and p.hp > 0]
 
             for opp_pkm in opp_full_team:
                 if hazard == Hazard.STEALTH_ROCK:

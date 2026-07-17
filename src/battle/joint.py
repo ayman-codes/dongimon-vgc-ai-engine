@@ -5,6 +5,7 @@ active Pokemon and computes a weighted joint score from individual
 scores plus cross-slot synergy components.
 """
 
+from typing import Any
 
 from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.modifiers import Category, Stat, Terrain, Type, Weather
@@ -37,19 +38,19 @@ from src.config.constants import (
 
 
 def evaluate_joint_actions(
-    actions_slot_a: list,
-    actions_slot_b: list,
+    actions_slot_a: list[Any],
+    actions_slot_b: list[Any],
     my_pkm_a: BattlingPokemonView,
     my_pkm_b: BattlingPokemonView,
-    opp_active_list: list,
-    my_active_list: list,
+    opp_active_list: list[Any],
+    my_active_list: list[Any],
     state: StateView,
     params: BattleRuleParam,
     weights: dict[str, float],
     max_score: float,
     locked_moves: dict[int, str] | None = None,
     lookahead_weight: float = BOARD_WEIGHT,
-) -> tuple[list, dict, dict, float]:
+) -> tuple[list[Any], dict[str, Any], dict[str, Any], float]:
     """Evaluate all joint action pairs and select the best.
 
     For each combination of actions (one per active Pokemon), computes
@@ -88,10 +89,18 @@ def evaluate_joint_actions(
         biggest_threat_pkm, biggest_threat_slot = biggest_threat_info
 
     threat_a_undefended, pkm_a_ko_by_threat = estimate_incoming_threat(
-        my_pkm_a, opp_active_list, state, params, locked_moves,
+        my_pkm_a,
+        opp_active_list,
+        state,
+        params,
+        locked_moves,
     )
     threat_b_undefended, pkm_b_ko_by_threat = estimate_incoming_threat(
-        my_pkm_b, opp_active_list, state, params, locked_moves,
+        my_pkm_b,
+        opp_active_list,
+        state,
+        params,
+        locked_moves,
     )
 
     raw_a: list[float] = []
@@ -104,7 +113,7 @@ def evaluate_joint_actions(
     raw_su: list[float] = []
     raw_ev: list[float] = []
     raw_bp: list[float] = []
-    pair_info: list[tuple] = []
+    pair_info: list[tuple[Any, ...]] = []
 
     for cmd_a_info in actions_slot_a:
         cmd_a, score_a, is_ko_a = cmd_a_info
@@ -123,57 +132,117 @@ def evaluate_joint_actions(
                 move_b_const = my_pkm_b.battling_moves[cmd_b[0]].constants
 
             sv_a = _survival_impact(
-                my_pkm_a, threat_a_undefended, is_move_a, move_a_const,
-                is_ko_b, move_b_const, cmd_b_target, biggest_threat_pkm,
-                biggest_threat_slot, max_score,
+                my_pkm_a,
+                threat_a_undefended,
+                is_move_a,
+                move_a_const,
+                is_ko_b,
+                move_b_const,
+                cmd_b_target,
+                biggest_threat_pkm,
+                biggest_threat_slot,
+                max_score,
             )
             sv_b = _survival_impact_b(
-                my_pkm_b, opp_active_list, is_ko_a, move_a_const, cmd_a_target,
-                is_move_b, move_b_const, threat_b_undefended, pkm_b_ko_by_threat,
-                biggest_threat_pkm, biggest_threat_slot, max_score, state, params,
+                my_pkm_b,
+                opp_active_list,
+                is_ko_a,
+                move_a_const,
+                cmd_a_target,
+                is_move_b,
+                move_b_const,
+                threat_b_undefended,
+                pkm_b_ko_by_threat,
+                biggest_threat_pkm,
+                biggest_threat_slot,
+                max_score,
+                state,
+                params,
                 locked_moves,
             )
 
             ff = _focus_fire_wrapper(
-                my_pkm_a, move_a_const, is_ko_a,
-                my_pkm_b, move_b_const, is_ko_b,
-                cmd_a_target, cmd_b_target, is_move_a, is_move_b,
-                opp_active_list, state, params, biggest_threat_pkm,
+                my_pkm_a,
+                move_a_const,
+                is_ko_a,
+                my_pkm_b,
+                move_b_const,
+                is_ko_b,
+                cmd_a_target,
+                cmd_b_target,
+                is_move_a,
+                is_move_b,
+                opp_active_list,
+                state,
+                params,
+                biggest_threat_pkm,
             )
 
             tp = _target_priority(
-                is_ko_a, is_ko_b, move_a_const, move_b_const,
-                cmd_a_target, cmd_b_target, is_move_a, is_move_b,
-                biggest_threat_pkm, biggest_threat_slot,
-                my_active_list, state, params, locked_moves,
+                is_ko_a,
+                is_ko_b,
+                move_a_const,
+                move_b_const,
+                cmd_a_target,
+                cmd_b_target,
+                is_move_a,
+                is_move_b,
+                biggest_threat_pkm,
+                biggest_threat_slot,
+                my_active_list,
+                state,
+                params,
+                locked_moves,
             )
 
             od = _off_def_support(
-                is_move_a, move_a_const, score_a,
-                is_move_b, move_b_const, score_b,
-                pkm_a_ko_by_threat, pkm_b_ko_by_threat,
+                is_move_a,
+                move_a_const,
+                score_a,
+                is_move_b,
+                move_b_const,
+                score_b,
+                pkm_a_ko_by_threat,
+                pkm_b_ko_by_threat,
             )
 
             su = _setup_synergy(
-                is_move_a, move_a_const, score_a, is_ko_a,
-                is_move_b, move_b_const, score_b, is_ko_b,
+                is_move_a,
+                move_a_const,
+                score_a,
+                is_ko_a,
+                is_move_b,
+                move_b_const,
+                score_b,
+                is_ko_b,
             )
 
             ev = _env_synergy(
-                is_move_a, move_a_const, is_move_b, move_b_const,
-                my_pkm_a, my_pkm_b, state,
+                is_move_a,
+                move_a_const,
+                is_move_b,
+                move_b_const,
+                my_pkm_a,
+                my_pkm_b,
+                state,
             )
 
             my_alive_after = sum(1 for p in my_active_list if p and p.hp > 0)
             opp_alive_after = sum(1 for p in opp_active_list if p and p.hp > 0)
             if (
-                is_ko_a and cmd_a_target >= 0 and cmd_a_target < len(opp_active_list)
-                and opp_active_list[cmd_a_target] and opp_active_list[cmd_a_target].hp > 0
+                is_ko_a
+                and cmd_a_target >= 0
+                and cmd_a_target < len(opp_active_list)
+                and opp_active_list[cmd_a_target]
+                and opp_active_list[cmd_a_target].hp > 0
             ):
                 opp_alive_after -= 1
             if (
-                is_ko_b and cmd_b_target >= 0 and cmd_b_target < len(opp_active_list)
-                and opp_active_list[cmd_b_target] and opp_active_list[cmd_b_target].hp > 0
+                is_ko_b
+                and cmd_b_target >= 0
+                and cmd_b_target < len(opp_active_list)
+                and opp_active_list[cmd_b_target]
+                and opp_active_list[cmd_b_target].hp > 0
             ):
                 opp_alive_after -= 1
 
@@ -243,11 +312,11 @@ def _survival_impact(
     pkm: BattlingPokemonView,
     threat_undefended: float,
     is_move: bool,
-    move_const: object,
+    move_const: Any,
     ally_ko_threat: bool,
-    ally_move_const: object,
+    ally_move_const: Any,
     ally_target_slot: int,
-    biggest_threat_pkm: object,
+    biggest_threat_pkm: Any,
     biggest_threat_slot: int,
     max_score: float,
 ) -> float:
@@ -298,15 +367,15 @@ def _survival_impact(
 
 def _survival_impact_b(
     pkm_b: BattlingPokemonView,
-    opp_active_list: list,
+    opp_active_list: list[Any],
     is_ko_a: bool,
-    move_a_const: object,
+    move_a_const: Any,
     cmd_a_target: int,
     is_move_b: bool,
-    move_b_const: object,
+    move_b_const: Any,
     threat_b_undefended: float,
     pkm_b_ko_by_threat: bool,
-    biggest_threat_pkm: object,
+    biggest_threat_pkm: Any,
     biggest_threat_slot: int,
     max_score: float,
     state: StateView,
@@ -375,19 +444,19 @@ def _survival_impact_b(
 
 def _focus_fire_wrapper(
     pkm_a: BattlingPokemonView,
-    move_a_const: object,
+    move_a_const: Any,
     is_ko_a: bool,
     pkm_b: BattlingPokemonView,
-    move_b_const: object,
+    move_b_const: Any,
     is_ko_b: bool,
     cmd_a_target: int,
     cmd_b_target: int,
     is_move_a: bool,
     is_move_b: bool,
-    opp_active_list: list,
+    opp_active_list: list[Any],
     state: StateView,
     params: BattleRuleParam,
-    biggest_threat_pkm: object,
+    biggest_threat_pkm: Any,
 ) -> float:
     """Compute focus fire bonus if both Pokemon target the same opponent.
 
@@ -411,9 +480,14 @@ def _focus_fire_wrapper(
         Focus fire bonus float, or 0.0 if not focusing same target.
     """
     if not (
-        is_move_a and is_move_b and move_a_const and move_b_const
-        and not move_a_const.protect and not move_b_const.protect
-        and cmd_a_target == cmd_b_target and cmd_a_target != -1
+        is_move_a
+        and is_move_b
+        and move_a_const
+        and move_b_const
+        and not move_a_const.protect
+        and not move_b_const.protect
+        and cmd_a_target == cmd_b_target
+        and cmd_a_target != -1
     ):
         return 0.0
 
@@ -422,9 +496,16 @@ def _focus_fire_wrapper(
         target = opp_active_list[target_idx]
         if target.hp > 0:
             return calculate_focus_fire_bonus(
-                pkm_a, move_a_const, is_ko_a,
-                pkm_b, move_b_const, is_ko_b,
-                target, state, params, biggest_threat_pkm,
+                pkm_a,
+                move_a_const,
+                is_ko_a,
+                pkm_b,
+                move_b_const,
+                is_ko_b,
+                target,
+                state,
+                params,
+                biggest_threat_pkm,
             )
 
     return 0.0
@@ -433,15 +514,15 @@ def _focus_fire_wrapper(
 def _target_priority(
     is_ko_a: bool,
     is_ko_b: bool,
-    move_a_const: object,
-    move_b_const: object,
+    move_a_const: Any,
+    move_b_const: Any,
     cmd_a_target: int,
     cmd_b_target: int,
     is_move_a: bool,
     is_move_b: bool,
-    biggest_threat_pkm: object,
+    biggest_threat_pkm: Any,
     biggest_threat_slot: int,
-    my_active_list: list,
+    my_active_list: list[Any],
     state: StateView,
     params: BattleRuleParam,
     locked_moves: dict[int, str] | None = None,
@@ -471,13 +552,15 @@ def _target_priority(
         return 0.0
 
     ko_threat_a = (
-        is_move_a and move_a_const is not None
+        is_move_a
+        and move_a_const is not None
         and not move_a_const.protect
         and cmd_a_target == biggest_threat_slot
         and is_ko_a
     )
     ko_threat_b = (
-        is_move_b and move_b_const is not None
+        is_move_b
+        and move_b_const is not None
         and not move_b_const.protect
         and cmd_b_target == biggest_threat_slot
         and is_ko_b
@@ -498,8 +581,12 @@ def _target_priority(
 
 
 def _off_def_support(
-    is_move_a: bool, move_a_const: object, score_a: float,
-    is_move_b: bool, move_b_const: object, score_b: float,
+    is_move_a: bool,
+    move_a_const: Any,
+    score_a: float,
+    is_move_b: bool,
+    move_b_const: Any,
+    score_b: float,
     pkm_a_ko_by_threat: bool,
     pkm_b_ko_by_threat: bool,
 ) -> float:
@@ -536,8 +623,14 @@ def _off_def_support(
 
 
 def _setup_synergy(
-    is_move_a: bool, move_a_const: object, score_a: float, is_ko_a: bool,
-    is_move_b: bool, move_b_const: object, score_b: float, is_ko_b: bool,
+    is_move_a: bool,
+    move_a_const: Any,
+    score_a: float,
+    is_ko_a: bool,
+    is_move_b: bool,
+    move_b_const: Any,
+    score_b: float,
+    is_ko_b: bool,
 ) -> float:
     """Compute bonus for one Pokemon using a setup move while the other attacks or protects.
 
@@ -563,8 +656,7 @@ def _setup_synergy(
 
     if a_setup:
         b_good_off = (
-            is_move_b and not move_b_const.protect and not is_ko_b
-            and score_b > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
+            is_move_b and not move_b_const.protect and not is_ko_b and score_b > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
         )
         b_good_prot = is_move_b and move_b_const.protect and score_b > GOOD_PROTECT_THRESHOLD
         if b_good_off or b_good_prot:
@@ -572,8 +664,7 @@ def _setup_synergy(
 
     if b_setup:
         a_good_off = (
-            is_move_a and not move_a_const.protect and not is_ko_a
-            and score_a > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
+            is_move_a and not move_a_const.protect and not is_ko_a and score_a > GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD
         )
         a_good_prot = is_move_a and move_a_const.protect and score_a > GOOD_PROTECT_THRESHOLD
         if a_good_off or a_good_prot:
@@ -582,7 +673,7 @@ def _setup_synergy(
     return bonus
 
 
-def _is_setup_move(is_move: bool, move_const: object, score: float, is_ko: bool) -> bool:
+def _is_setup_move(is_move: bool, move_const: Any, score: float, is_ko: bool) -> bool:
     if not (is_move and move_const and score > SETUP_MOVE_MIN_SCORE):
         return False
 
@@ -601,8 +692,10 @@ def _is_setup_move(is_move: bool, move_const: object, score: float, is_ko: bool)
 
 
 def _env_synergy(
-    is_move_a: bool, move_a_const: object,
-    is_move_b: bool, move_b_const: object,
+    is_move_a: bool,
+    move_a_const: Any,
+    is_move_b: bool,
+    move_b_const: Any,
     pkm_a_view: BattlingPokemonView,
     pkm_b_view: BattlingPokemonView,
     state: StateView,
@@ -639,10 +732,10 @@ def _env_synergy(
 
 
 def _weather_synergy(
-    setter: object,
-    beneficiary: object,
-    setter_pkm: object,
-    benefit_pkm: object,
+    setter: Any,
+    beneficiary: Any,
+    setter_pkm: Any,
+    benefit_pkm: Any,
     state: StateView,
 ) -> float:
     """Compute synergy bonus for setting weather that benefits an ally's move type.
@@ -657,22 +750,18 @@ def _weather_synergy(
     Returns:
         Synergy bonus float.
     """
-    if (
-        setter.weather_start != Weather.CLEAR
-        and setter.weather_start != state.weather
-    ):
+    if setter.weather_start != Weather.CLEAR and setter.weather_start != state.weather:
         new_weather = setter.weather_start
-        if (
-            (new_weather == Weather.RAIN and beneficiary.pkm_type == Type.WATER)
-            or (new_weather == Weather.SUN and beneficiary.pkm_type == Type.FIRE)
+        if (new_weather == Weather.RAIN and beneficiary.pkm_type == Type.WATER) or (
+            new_weather == Weather.SUN and beneficiary.pkm_type == Type.FIRE
         ):
             return WEATHER_SYNERGY_BONUS
     return 0.0
 
 
 def _terrain_synergy(
-    setter: object,
-    beneficiary: object,
+    setter: Any,
+    beneficiary: Any,
     setter_pkm: BattlingPokemonView,
     benefit_pkm: BattlingPokemonView,
     state: StateView,
@@ -689,14 +778,10 @@ def _terrain_synergy(
     Returns:
         Synergy bonus float.
     """
-    if (
-        setter.field_start != Terrain.NONE
-        and setter.field_start != state.field
-    ):
+    if setter.field_start != Terrain.NONE and setter.field_start != state.field:
         new_terrain = setter.field_start
         is_grounded = not (
-            Type.FLYING in benefit_pkm.types
-            or getattr(benefit_pkm.constants.species, "ability", None) == "Levitate"
+            Type.FLYING in benefit_pkm.types or getattr(benefit_pkm.constants.species, "ability", None) == "Levitate"
         )
         if is_grounded and (
             (new_terrain == Terrain.ELECTRIC_TERRAIN and beneficiary.pkm_type == Type.ELECTRIC)
@@ -708,8 +793,8 @@ def _terrain_synergy(
 
 
 def _trick_room_synergy(
-    setter: object,
-    beneficiary: object,
+    setter: Any,
+    beneficiary: Any,
     setter_pkm: BattlingPokemonView,
     benefit_pkm: BattlingPokemonView,
     state: StateView,

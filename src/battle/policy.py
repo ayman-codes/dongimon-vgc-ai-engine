@@ -24,7 +24,7 @@ from src.config.loader import load_battle_weights
 MAX_SCORE = 1000.0
 
 
-class DongimonBattlePolicy(BattlePolicy):
+class DongimonBattlePolicy(BattlePolicy):  # type: ignore[misc]
     """Battle policy using an 8-component heuristic with joint action pairing.
 
     Evaluates all possible individual actions (moves, switches) for each
@@ -144,7 +144,7 @@ class DongimonBattlePolicy(BattlePolicy):
                 num_my_active += 1
                 active_slots.append(i_slot)
 
-        actions_per_slot: list = [[] for _ in range(len(my_team_view.active))]
+        actions_per_slot: list[list[tuple[Any, float, bool]]] = [[] for _ in range(len(my_team_view.active))]
 
         for _, original_slot in enumerate(active_slots):
             my_pkm = my_team_view.active[original_slot]
@@ -164,20 +164,26 @@ class DongimonBattlePolicy(BattlePolicy):
                                 if opp_target is None or opp_target.hp <= 0:
                                     continue
                                 move_score, is_ko = score_offensive_move(
-                                    my_pkm, move, opp_target, state, self.params, self._status_weights,
+                                    my_pkm,
+                                    move,
+                                    opp_target,
+                                    state,
+                                    self.params,
+                                    self._status_weights,
                                 )
-                                actions_per_slot[original_slot].append(
-                                    ((move_idx, target_slot), move_score, is_ko)
-                                )
+                                actions_per_slot[original_slot].append(((move_idx, target_slot), move_score, is_ko))
                         elif move.constants.category != Category.OTHER:
                             actions_per_slot[original_slot].append(((move_idx, 0), -100.0, False))
                         elif move.constants.category == Category.OTHER:
                             move_score, _ = score_offensive_move(
-                                my_pkm, move, my_pkm, state, self.params, self._status_weights,
+                                my_pkm,
+                                move,
+                                my_pkm,
+                                state,
+                                self.params,
+                                self._status_weights,
                             )
-                            actions_per_slot[original_slot].append(
-                                ((move_idx, original_slot), move_score, False)
-                            )
+                            actions_per_slot[original_slot].append(((move_idx, original_slot), move_score, False))
 
             if my_team_view.reserve:
                 move_nums = []
@@ -232,11 +238,16 @@ class DongimonBattlePolicy(BattlePolicy):
             actions_b = actions_per_slot[slot_b] if actions_per_slot[slot_b] else [((0, 0), -float("inf"), False)]
 
             cmds, log_a, log_b, joint = evaluate_joint_actions(
-                actions_a, actions_b,
-                pkm_a, pkm_b,
-                opps, my_active,
-                state, self.params,
-                self._weights, MAX_SCORE,
+                actions_a,
+                actions_b,
+                pkm_a,
+                pkm_b,
+                opps,
+                my_active,
+                state,
+                self.params,
+                self._weights,
+                MAX_SCORE,
                 locked_moves,
                 self._weights.get("w_lookahead", BOARD_WEIGHT),
             )
@@ -253,14 +264,14 @@ class DongimonBattlePolicy(BattlePolicy):
             log: dict[str, Any] = {}
             if pkm0_log["command"] is not None:
                 cmd = pkm0_log["command"]
-                log["Pkm0_Action_Type"] = "SWITCH" if cmd[0] == -1 else "MOVE"
-                log["Pkm0_Score"] = round(pkm0_log["score"], 2) if pkm0_log["score"] != -float("inf") else None
+                log["Pkm0_Action_Type"] = "SWITCH" if cmd[0] == -1 else "MOVE"  # type: ignore[index]
+                log["Pkm0_Score"] = round(pkm0_log["score"], 2) if pkm0_log["score"] != -float("inf") else None  # type: ignore[arg-type]
                 log["Pkm0_Is_KO"] = pkm0_log["is_ko"]
 
             if pkm1_log["command"] is not None and num_my_active == 2:
                 cmd = pkm1_log["command"]
-                log["Pkm1_Action_Type"] = "SWITCH" if cmd[0] == -1 else "MOVE"
-                log["Pkm1_Score"] = round(pkm1_log["score"], 2) if pkm1_log["score"] != -float("inf") else None
+                log["Pkm1_Action_Type"] = "SWITCH" if cmd[0] == -1 else "MOVE"  # type: ignore[index]
+                log["Pkm1_Score"] = round(pkm1_log["score"], 2) if pkm1_log["score"] != -float("inf") else None  # type: ignore[arg-type]
                 log["Pkm1_Is_KO"] = pkm1_log["is_ko"]
 
             if joint_log != -float("inf"):

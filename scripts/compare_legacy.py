@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from typing import Any
+
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.agent.selection import BasicSelectionPolicy
@@ -23,7 +25,7 @@ from legacy.my_battle_policy import MyBattlePolicy
 from src.battle.policy import DongimonBattlePolicy
 
 
-def run_battles(bp, n, team, view, sel, params):
+def run_battles(bp: Any, n: int, team: Any, view: Any, sel: Any, params: Any) -> int:
     wins = 0
     opp = GreedyBattlePolicy()
     for _ in range(n):
@@ -45,7 +47,7 @@ def run_battles(bp, n, team, view, sel, params):
     return wins
 
 
-def main():
+def main() -> None:
     seed = 42
     n = 20
     rng = np.random.default_rng(seed)
@@ -68,22 +70,22 @@ def main():
     t0 = time.perf_counter()
     lw = run_battles(legacy, n, team, view, sel, params)
     lt = time.perf_counter() - t0
-    print(f"  {lw}/{n} wins ({lw/n*100:.0f}%)  [{lt:.0f}s]")
+    print(f"  {lw}/{n} wins ({lw / n * 100:.0f}%)  [{lt:.0f}s]")
 
     print("  Extracted DongimonBattlePolicy vs GreedyBattlePolicy...", end=" ", flush=True)
     t0 = time.perf_counter()
     ew = run_battles(extracted, n, team, view, sel, params)
     et = time.perf_counter() - t0
-    print(f"  {ew}/{n} wins ({ew/n*100:.0f}%)  [{et:.0f}s]")
+    print(f"  {ew}/{n} wins ({ew / n * 100:.0f}%)  [{et:.0f}s]")
 
     print()
-    print(f"  Legacy:    {lw}/{n} ({lw/n*100:.0f}%)  [{lt:.0f}s]")
-    print(f"  Extracted: {ew}/{n} ({ew/n*100:.0f}%)  [{et:.0f}s]")
+    print(f"  Legacy:    {lw}/{n} ({lw / n * 100:.0f}%)  [{lt:.0f}s]")
+    print(f"  Extracted: {ew}/{n} ({ew / n * 100:.0f}%)  [{et:.0f}s]")
     diff = lw - ew
     if diff > 0:
-        print(f"\n  Legacy outperforms extracted by {diff}/{n} wins ({(diff/n)*100:.0f}%)")
+        print(f"\n  Legacy outperforms extracted by {diff}/{n} wins ({(diff / n) * 100:.0f}%)")
     elif diff < 0:
-        print(f"\n  Extracted outperforms legacy by {-diff}/{n} wins ({(-diff/n)*100:.0f}%)")
+        print(f"\n  Extracted outperforms legacy by {-diff}/{n} wins ({(-diff / n) * 100:.0f}%)")
     else:
         print(f"\n  Identical performance at {lw}/{n} wins")
 

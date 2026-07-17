@@ -14,6 +14,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -37,47 +38,47 @@ N_BATTLES = 25
 OPPONENT_NAMES = ["Greedy", "JJJ", "minimon", "StocKarpador"]
 
 
-class GreedyIsolatedCompetitor(Competitor):
+class GreedyIsolatedCompetitor(Competitor):  # type: ignore[misc]
     """Baseline using GreedyBattlePolicy with no selection or teambuild."""
 
     @property
-    def name(self):
+    def name(self) -> str:
         return "Greedy"
 
     @property
-    def battlepolicy(self):
+    def battlepolicy(self) -> Any:
         return GreedyBattlePolicy()
 
     @property
-    def selectionpolicy(self):
+    def selectionpolicy(self) -> Any:
         return None
 
     @property
-    def teambuildpolicy(self):
+    def teambuildpolicy(self) -> Any:
         return None
 
 
-class GreedyFullCompetitor(Competitor):
+class GreedyFullCompetitor(Competitor):  # type: ignore[misc]
     """Baseline using GreedyBattlePolicy with random selection and teambuild."""
 
     @property
-    def name(self):
+    def name(self) -> str:
         return "Greedy"
 
     @property
-    def battlepolicy(self):
+    def battlepolicy(self) -> Any:
         return GreedyBattlePolicy()
 
     @property
-    def selectionpolicy(self):
+    def selectionpolicy(self) -> Any:
         return RandomSelectionPolicy()
 
     @property
-    def teambuildpolicy(self):
+    def teambuildpolicy(self) -> Any:
         return RandomTeamBuildPolicy()
 
 
-def _import_competitor(module_path: str, class_name: str):
+def _import_competitor(module_path: str, class_name: str) -> Any:
     """Dynamically import a competitor class.
 
     Args:
@@ -88,11 +89,12 @@ def _import_competitor(module_path: str, class_name: str):
         The competitor class.
     """
     import importlib
+
     mod = importlib.import_module(module_path)
     return getattr(mod, class_name)
 
 
-def _get_isolated_policies():
+def _get_isolated_policies() -> Any:
     """Return dict of opponent name to battle policy for isolated mode.
 
     Returns:
@@ -112,7 +114,7 @@ def _get_isolated_policies():
     return policies
 
 
-def _get_full_competitors():
+def _get_full_competitors() -> Any:
     """Return dict of opponent name to competitor factory for full mode.
 
     Returns:
@@ -131,8 +133,14 @@ def _get_full_competitors():
 
 
 def _run_isolated_match(
-    battle_policy_a, battle_policy_b, base_team, base_view, n_battles, params, battle_seed
-):
+    battle_policy_a: Any,
+    battle_policy_b: Any,
+    base_team: Any,
+    base_view: Any,
+    n_battles: int,
+    params: Any,
+    battle_seed: int,
+) -> tuple[int, int]:
     """Run N battles between two battle policies using the same team.
 
     Args:
@@ -179,7 +187,7 @@ def _run_isolated_match(
     return wins_a, wins_b
 
 
-def _run_full_match(opponent_cls, n_battles, params, weights_dict):
+def _run_full_match(opponent_cls: Any, n_battles: int, params: Any, weights_dict: dict[str, float]) -> tuple[int, int]:
     """Run N battles between Dongimon and an opponent using all 3 policies.
 
     Args:
@@ -199,7 +207,9 @@ def _run_full_match(opponent_cls, n_battles, params, weights_dict):
     return wins[0], wins[1]
 
 
-def _run_isolated_benchmark(seed, n_matches, n_battles, results_path, weights_dict):
+def _run_isolated_benchmark(
+    seed: int, n_matches: int, n_battles: int, results_path: str, weights_dict: dict[str, float]
+) -> dict[str, tuple[int, int]]:
     """Run the isolated battle royale benchmark.
 
     Args:
@@ -239,19 +249,23 @@ def _run_isolated_benchmark(seed, n_matches, n_battles, results_path, weights_di
                 per_opponent[opp_name][0] += dw
                 per_opponent[opp_name][1] += ow
 
-                writer.writerow({
-                    "match_id": match_id,
-                    "opponent": opp_name,
-                    "dongimon_wins": dw,
-                    "opponent_wins": ow,
-                    "total_battles": dw + ow,
-                })
+                writer.writerow(
+                    {
+                        "match_id": match_id,
+                        "opponent": opp_name,
+                        "dongimon_wins": dw,
+                        "opponent_wins": ow,
+                        "total_battles": dw + ow,
+                    }
+                )
                 f_out.flush()
 
-    return {opp: tuple(v) for opp, v in per_opponent.items()}
+    return {opp: (v[0], v[1]) for opp, v in per_opponent.items()}
 
 
-def _run_full_benchmark(seed, n_matches, n_battles, results_path, weights_dict):
+def _run_full_benchmark(
+    seed: int, n_matches: int, n_battles: int, results_path: str, weights_dict: dict[str, float]
+) -> dict[str, tuple[int, int]]:
     """Run the full battle royale benchmark with all 3 policies.
 
     Args:
@@ -284,19 +298,30 @@ def _run_full_benchmark(seed, n_matches, n_battles, results_path, weights_dict):
                 per_opponent[opp_name][0] += dw
                 per_opponent[opp_name][1] += ow
 
-                writer.writerow({
-                    "match_id": match_id,
-                    "opponent": opp_name,
-                    "dongimon_wins": dw,
-                    "opponent_wins": ow,
-                    "total_battles": dw + ow,
-                })
+                writer.writerow(
+                    {
+                        "match_id": match_id,
+                        "opponent": opp_name,
+                        "dongimon_wins": dw,
+                        "opponent_wins": ow,
+                        "total_battles": dw + ow,
+                    }
+                )
                 f_out.flush()
 
-    return {opp: tuple(v) for opp, v in per_opponent.items()}
+    return {opp: (v[0], v[1]) for opp, v in per_opponent.items()}
 
 
-def _log_to_mlflow(results, weights_dict, mode, seed, n_matches, n_battles, results_path, tag):
+def _log_to_mlflow(
+    results: dict[str, tuple[int, int]],
+    weights_dict: dict[str, float],
+    mode: str,
+    seed: int,
+    n_matches: int,
+    n_battles: int,
+    results_path: str,
+    tag: str,
+) -> None:
     """Log benchmark results to MLflow.
 
     Args:
@@ -318,13 +343,15 @@ def _log_to_mlflow(results, weights_dict, mode, seed, n_matches, n_battles, resu
     mlflow.set_experiment("dongimon_benchmarks")
 
     with mlflow.start_run(run_name=f"{mode}_{time.strftime('%Y%m%d_%H%M%S')}"):
-        mlflow.log_params({
-            "mode": mode,
-            "seed": seed,
-            "n_matches": n_matches,
-            "n_battles_per_match": n_battles,
-            "tag": tag or "",
-        })
+        mlflow.log_params(
+            {
+                "mode": mode,
+                "seed": seed,
+                "n_matches": n_matches,
+                "n_battles_per_match": n_battles,
+                "tag": tag or "",
+            }
+        )
         mlflow.log_params(weights_dict)
 
         for opp_name, (dw, ow) in results.items():
@@ -335,19 +362,16 @@ def _log_to_mlflow(results, weights_dict, mode, seed, n_matches, n_battles, resu
         agg_wr = total_d / max(grand_total, 1)
         mlflow.log_metric("aggregate_win_rate", agg_wr)
 
-        weights_path = os.path.join(
-            os.path.dirname(__file__), "..", "src", "config", "battle_weights.yaml"
-        )
+        weights_path = os.path.join(os.path.dirname(__file__), "..", "src", "config", "battle_weights.yaml")
         mlflow.log_artifact(weights_path)
         mlflow.log_artifact(results_path)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Dongimon battle royale benchmark against 4 opponents."
-    )
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Dongimon battle royale benchmark against 4 opponents.")
     parser.add_argument(
-        "--full", action="store_true",
+        "--full",
+        action="store_true",
         help="Use all 3 policies (teambuild, selection, battle)",
     )
     parser.add_argument("--seed", type=int, default=42, help="RNG seed")
@@ -361,9 +385,7 @@ def main():
     weights_dict = load_battle_weights().model_dump()
     np.random.seed(args.seed)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    results_path = os.path.join(
-        os.path.dirname(__file__), "..", "data", f"results_{mode}_{timestamp}.csv"
-    )
+    results_path = os.path.join(os.path.dirname(__file__), "..", "data", f"results_{mode}_{timestamp}.csv")
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
     total_battles = args.n_matches * len(OPPONENT_NAMES) * args.n_battles
@@ -376,13 +398,9 @@ def main():
     print("=" * 60)
 
     if args.full:
-        results = _run_full_benchmark(
-            args.seed, args.n_matches, args.n_battles, results_path, weights_dict
-        )
+        results = _run_full_benchmark(args.seed, args.n_matches, args.n_battles, results_path, weights_dict)
     else:
-        results = _run_isolated_benchmark(
-            args.seed, args.n_matches, args.n_battles, results_path, weights_dict
-        )
+        results = _run_isolated_benchmark(args.seed, args.n_matches, args.n_battles, results_path, weights_dict)
 
     print(f"\n{'Opponent':<15} {'Dongimon':>10} {'Opponent':>10} {'Win Rate':>10}")
     print("-" * 50)
@@ -401,8 +419,14 @@ def main():
 
     if not args.no_mlflow:
         _log_to_mlflow(
-            results, weights_dict, mode, args.seed,
-            args.n_matches, args.n_battles, results_path, args.tag,
+            results,
+            weights_dict,
+            mode,
+            args.seed,
+            args.n_matches,
+            args.n_battles,
+            results_path,
+            args.tag,
         )
         print("\nResults logged to MLflow (experiment: dongimon_benchmarks)")
 

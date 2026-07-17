@@ -5,6 +5,7 @@ viability comparison tournaments, and ranks species by their
 average net matchup score.
 """
 
+from typing import Any
 
 from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.modifiers import Stat
@@ -14,7 +15,7 @@ from src.shared.archetypes import create_archetype_builds, create_generic_build_
 from src.teambuild.moveset import get_role_aware_moveset
 
 
-def calculate_stat_compatibility(species: PokemonSpecies, evs: tuple) -> float:
+def calculate_stat_compatibility(species: PokemonSpecies, evs: tuple[int, ...]) -> float:
     """Score how well an EV spread complements a species' base stats.
 
     Rewards investment in the species' best stat, with diminishing
@@ -32,11 +33,14 @@ def calculate_stat_compatibility(species: PokemonSpecies, evs: tuple) -> float:
     best_idx = indexed[0][1]
     second_idx = indexed[1][1]
 
-    return (evs[best_idx] * 1.0) + (evs[second_idx] * 0.5) + (evs[Stat.MAX_HP] * 0.25)
+    return (evs[best_idx] * 1.0) + (evs[second_idx] * 0.5) + (evs[Stat.MAX_HP] * 0.25)  # type: ignore[no-any-return]
 
 
 def calculate_1v1_net_score(
-    build_a: Pokemon, build_b: Pokemon, roster: list, params: BattleRuleParam,
+    build_a: Pokemon,
+    build_b: Pokemon,
+    roster: list[Any],
+    params: BattleRuleParam,
 ) -> float:
     """Calculate the net damage potential in a 1v1 matchup.
 
@@ -53,13 +57,14 @@ def calculate_1v1_net_score(
         Net score. Positive favours build_A.
     """
     from src.teambuild.builds import species_power
+
     return species_power(build_a.species) - species_power(build_b.species)
 
 
 def get_optimal_archetype(
     species: PokemonSpecies,
-    roster: list,
-    global_max_scores: dict,
+    roster: list[Any],
+    global_max_scores: dict[str, float],
     params: BattleRuleParam,
 ) -> Pokemon | None:
     """Determine the single best competitive build for a species.
@@ -92,24 +97,30 @@ def get_optimal_archetype(
         total_stat_syn = sum(all_scores[m]["stat_syn"] for m in optimal_moves)
         total_speed_syn = sum(all_scores[m]["speed_syn"] for m in optimal_moves)
 
-        evaluations.append({
-            "name": archetype_name,
-            "build": temp_build,
-            "moves": optimal_moves,
-            "stat_score": calculate_stat_compatibility(species, temp_build.evs),
-            "damage_score": total_damage,
-            "utility_score": total_utility,
-            "stat_syn_score": total_stat_syn,
-            "speed_syn_score": total_speed_syn,
-            "speed_stat_score": temp_build.stats[Stat.SPEED],
-        })
+        evaluations.append(
+            {
+                "name": archetype_name,
+                "build": temp_build,
+                "moves": optimal_moves,
+                "stat_score": calculate_stat_compatibility(species, temp_build.evs),
+                "damage_score": total_damage,
+                "utility_score": total_utility,
+                "stat_syn_score": total_stat_syn,
+                "speed_syn_score": total_speed_syn,
+                "speed_stat_score": temp_build.stats[Stat.SPEED],
+            }
+        )
 
     if not evaluations:
         return create_generic_build_for_species(species)
 
     weights = {
-        "w_stat": 0.2, "w_speed": 0.2, "w_dmg": 0.3,
-        "w_util": 0.2, "w_stat_syn": 0.05, "w_speed_syn": 0.05,
+        "w_stat": 0.2,
+        "w_speed": 0.2,
+        "w_dmg": 0.3,
+        "w_util": 0.2,
+        "w_stat_syn": 0.05,
+        "w_speed_syn": 0.05,
     }
 
     best_info = None
@@ -146,6 +157,10 @@ def get_optimal_archetype(
     base_build = best_info["build"]
 
     return Pokemon(
-        species, move_indices, base_build.level, base_build.evs,
-        base_build.ivs, base_build.nature,
+        species,
+        move_indices,
+        base_build.level,
+        base_build.evs,
+        base_build.ivs,
+        base_build.nature,
     )

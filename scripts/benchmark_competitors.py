@@ -12,6 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from typing import Any
+
 import numpy as np
 from vgc2.competition import CompetitorManager
 from vgc2.competition.match import Match
@@ -25,30 +27,38 @@ from src.tracking.benchmark_tracker import BenchmarkTracker
 class BaselineCompetitor:
     """Baseline: GreedyBattle + RandomSelection + RandomTeambuild."""
 
-    def __init__(self, name: str = "Baseline"):
+    def __init__(self, name: str = "Baseline") -> None:
         from vgc2.agent.battle import GreedyBattlePolicy
         from vgc2.agent.selection import RandomSelectionPolicy
         from vgc2.agent.teambuild import RandomTeamBuildPolicy
         from vgc2.competition import Competitor as Comp
 
-        class _B(Comp):
+        class _B(Comp):  # type: ignore[misc]
             @property
-            def name(self): return name
+            def name(self) -> str:
+                return name
+
             @property
-            def battlepolicy(self): return GreedyBattlePolicy()
+            def battlepolicy(self) -> Any:
+                return GreedyBattlePolicy()
+
             @property
-            def selectionpolicy(self): return RandomSelectionPolicy()
+            def selectionpolicy(self) -> Any:
+                return RandomSelectionPolicy()
+
             @property
-            def teambuildpolicy(self): return RandomTeamBuildPolicy()
+            def teambuildpolicy(self) -> Any:
+                return RandomTeamBuildPolicy()
 
         self._cls = _B
 
-    def __call__(self):
+    def __call__(self) -> Any:
         return self._cls()
 
 
-def main():
+def main() -> None:
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=42, help="RNG seed")
     parser.add_argument("--n-battles", type=int, default=10, help="Battles per matchup")
@@ -60,8 +70,8 @@ def main():
     weights = load_battle_weights().model_dump()
 
     opponents = [
-        ("JJJ",          _import_competitor("competitors.competitor1_jjj", "JJJ_Competitor")),
-        ("minimon",      _import_competitor("competitors.competitor2_minimon", "minimon")),
+        ("JJJ", _import_competitor("competitors.competitor1_jjj", "JJJ_Competitor")),
+        ("minimon", _import_competitor("competitors.competitor2_minimon", "minimon")),
         ("StocKarpador", _import_competitor("competitors.competitor3_stockarpador", "StocKarpadorCompetitor")),
     ]
 
@@ -108,18 +118,18 @@ def main():
 
     total_d = 0
     total_o = 0
-    if hasattr(tracker, '_results'):
+    if hasattr(tracker, "_results"):
         total_d = sum(r[0] for r in tracker._results.values())
         total_o = sum(r[1] for r in tracker._results.values())
 
     gt = total_d + total_o
     print("\n" + "=" * 60)
     if gt > 0:
-        print(f"  ALL-TIME: Dongimon {total_d} wins — Opponents {total_o} wins ({total_d/gt*100:.1f}% aggregate)")
+        print(f"  ALL-TIME: Dongimon {total_d} wins — Opponents {total_o} wins ({total_d / gt * 100:.1f}% aggregate)")
     print("=" * 60)
 
 
-def _import_competitor(module_path: str, class_name: str):
+def _import_competitor(module_path: str, class_name: str) -> Any:
     """Dynamically import a competitor class, returning a factory callable.
 
     Args:
@@ -130,6 +140,7 @@ def _import_competitor(module_path: str, class_name: str):
         Callable that creates a new instance of the competitor.
     """
     import importlib
+
     mod = importlib.import_module(module_path)
     cls = getattr(mod, class_name)
     return cls

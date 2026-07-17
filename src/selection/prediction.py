@@ -21,7 +21,7 @@ def predict_moveset(
     my_full_team: Team,
     all_opp_species_views: list[PokemonView],
     params: BattleRuleParam,
-) -> list:
+) -> list[Any]:
     """Predict the best 4 moves for a species by scoring its entire movepool.
 
     Each move is scored by average damage against our team (for damaging
@@ -39,7 +39,7 @@ def predict_moveset(
     if not species.moves:
         return []
 
-    move_scores: dict = dict.fromkeys(species.moves, 0.0)
+    move_scores: dict[Any, float] = dict.fromkeys(species.moves, 0.0)
 
     archetype_builds = create_archetype_builds(species, species.moves)
     if not archetype_builds:
@@ -56,7 +56,11 @@ def predict_moveset(
     for move in species.moves:
         if move.base_power == 0 and move.category == Category.OTHER:
             move_scores[move] = _calculate_utility_score(
-                move, species, my_full_team, all_opp_species_views, params,
+                move,
+                species,
+                my_full_team,
+                all_opp_species_views,
+                params,
             )
             continue
 
@@ -68,8 +72,12 @@ def predict_moveset(
             for my_pkm in my_full_team.members:
                 defend_proto = BattlingPokemon(my_pkm)
                 dmg = calculate_damage(
-                    params=params, attacking_side=1, move=move,
-                    state=neutral_state, attacker=attack_proto, defender=defend_proto,
+                    params=params,
+                    attacking_side=1,
+                    move=move,
+                    state=neutral_state,
+                    attacker=attack_proto,
+                    defender=defend_proto,
                 )
                 max_hp = my_pkm.stats[Stat.MAX_HP]
                 build_total += (dmg / max_hp) * 100 if max_hp > 0 else 0
@@ -160,7 +168,8 @@ def _calculate_utility_score(
             strongest = max(my_phys_attackers, key=lambda p: p.stats[Stat.ATTACK])
             best_move = max(
                 (m for m in strongest.moves if m.category == Category.PHYSICAL),
-                key=lambda m: m.base_power, default=None,
+                key=lambda m: m.base_power,
+                default=None,
             )
             if best_move and best_move.base_power > 0:
                 attack_proto = BattlingPokemon(strongest)
@@ -203,7 +212,7 @@ def _calculate_utility_score(
         avg_hp = sum(p.stats[Stat.MAX_HP] for p in my_team_members) / len(my_team_members) if my_team_members else 1
         score += (max_dmg * 1.5) / avg_hp * 100 if avg_hp > 0 else 0
 
-    def _field_effect_swing(move_type_boost: Type, dmg_mult: float, team: list) -> float:
+    def _field_effect_swing(move_type_boost: Type, dmg_mult: float, team: list[Any]) -> float:
         """Calculate net damage gain for a team under a field effect."""
         net = 0
         for pkm in team:
@@ -238,8 +247,7 @@ def _calculate_utility_score(
 
     elif move.weather_start == Weather.SAND:
         non_immune = sum(
-            1 for p in my_team_members
-            if not any(t in (Type.ROCK, Type.GROUND, Type.STEEL) for t in p.species.types)
+            1 for p in my_team_members if not any(t in (Type.ROCK, Type.GROUND, Type.STEEL) for t in p.species.types)
         )
         if my_team_members:
             score += non_immune * (my_team_members[0].stats[Stat.MAX_HP] / 16)
@@ -301,7 +309,7 @@ def predict_opponent_builds(
     my_full_team: Team,
     all_opp_views: list[PokemonView],
     params: BattleRuleParam,
-) -> list:
+) -> list[Any]:
     """Predict likely competitive builds for a single opponent Pokemon.
 
     Runs moveset prediction then archetype build generation.

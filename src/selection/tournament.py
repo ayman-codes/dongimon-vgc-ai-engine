@@ -34,7 +34,7 @@ def run_sub_tournament(
     my_full_team: Team,
     my_pair_indices: tuple[int, ...],
     opp_view_pair: tuple[PokemonView, ...],
-    predicted_builds_dict: dict,
+    predicted_builds_dict: dict[Any, list[Any]],
     battle_policy: Any,
     params: BattleRuleParam,
 ) -> float:

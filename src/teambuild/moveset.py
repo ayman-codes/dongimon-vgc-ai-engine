@@ -20,9 +20,9 @@ from src.teambuild.scoring import calculate_damage_score, calculate_utility_scor
 def get_role_aware_moveset(
     attacker_build: Pokemon,
     archetype_name: str,
-    roster: list,
+    roster: list[Any],
     params: BattleRuleParam,
-) -> tuple[list, dict]:
+) -> tuple[list[Any], dict[Any, Any]]:
     """Select the best 4 moves for a species given a specific role.
 
     Each move is scored on four independent dimensions to prevent
@@ -41,7 +41,7 @@ def get_role_aware_moveset(
     if not attacker_build.species.moves:
         return [], {}
 
-    move_scores: dict = {
+    move_scores: dict[Any, dict[str, float]] = {
         move: {"damage": 0.0, "utility": 0.0, "stat_syn": 0.0, "speed_syn": 0.0}
         for move in attacker_build.species.moves
     }
@@ -57,7 +57,7 @@ def get_role_aware_moveset(
         move_scores[move]["stat_syn"] = stat_syn
         move_scores[move]["speed_syn"] = speed_syn
 
-    def get_final_score(move) -> float:
+    def get_final_score(move: Any) -> float:
         s = move_scores.get(move, {})
         return s.get("damage", 0) + s.get("utility", 0) + s.get("stat_syn", 0) + s.get("speed_syn", 0)
 
@@ -70,8 +70,8 @@ def get_role_aware_moveset(
 def _calculate_stat_boost_synergy(
     attacker_build: Pokemon,
     move: Any,
-    roster: list,
-    optimal_builds_cache: dict | None,
+    roster: list[Any],
+    optimal_builds_cache: dict[Any, Any] | None,
     params: BattleRuleParam,
 ) -> float:
     """Calculate the synergy score for a self-targeting stat-boosting move.
@@ -120,8 +120,8 @@ def _calculate_stat_boost_synergy(
 def _calculate_speed_control_synergy(
     attacker_build: Pokemon,
     move: Any,
-    roster: list,
-    optimal_builds_cache: dict | None,
+    roster: list[Any],
+    optimal_builds_cache: dict[Any, Any] | None,
     params: BattleRuleParam,
 ) -> float:
     """Calculate the synergy score for speed-control moves (Tailwind, Trick Room).
@@ -175,11 +175,13 @@ def _calculate_speed_control_synergy(
 
         my_best = max(
             (m for m in attacker_build.moves if m.base_power > 0),
-            key=lambda m: m.base_power, default=None,
+            key=lambda m: m.base_power,
+            default=None,
         )
         opp_best = max(
             (m for m in opp_build.moves if m.base_power > 0),
-            key=lambda m: m.base_power, default=None,
+            key=lambda m: m.base_power,
+            default=None,
         )
         if not my_best or not opp_best:
             continue
@@ -200,7 +202,7 @@ def _calculate_speed_control_synergy(
     return total_swing / relevant if relevant > 0 else 0.0
 
 
-def apply_temp_boosts(pokemon_build: Pokemon, boost_stages: tuple) -> Pokemon:
+def apply_temp_boosts(pokemon_build: Pokemon, boost_stages: tuple[int, ...]) -> Pokemon:
     """Create a new Pokemon object with temporary stat boosts applied.
 
     Copies the original build and recalculates stats to reflect

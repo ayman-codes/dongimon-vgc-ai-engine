@@ -5,6 +5,8 @@ KO values, classification thresholds, type matchup scores,
 switch evaluation, and scoring defaults.
 """
 
+from typing import Any
+
 from vgc2.battle_engine.modifiers import Stat
 
 # ── Game Mechanics (immutable Pokemon engine constants) ──
@@ -132,4 +134,4 @@ OFF_THREAT_DOUBLE_SCORE: float = 75.0
 
 # ── Stat indices for boost evaluation ──
 
-DEFENSIVE_BOOST_STATS: tuple = (Stat.DEFENSE, Stat.SPECIAL_DEFENSE, Stat.SPEED)
+DEFENSIVE_BOOST_STATS: tuple[Any, ...] = (Stat.DEFENSE, Stat.SPECIAL_DEFENSE, Stat.SPEED)

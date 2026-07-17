@@ -15,7 +15,7 @@ from src.selection.prediction import predict_opponent_builds
 from src.selection.tournament import generate_team_combinations, run_sub_tournament
 
 
-class DongimonSelectionPolicy(SelectionPolicy):
+class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
     """Team Preview selection using pair-vs-pair sub-tournaments.
 
     For each possible pair of our Pokemon, runs simulated battles
@@ -23,7 +23,7 @@ class DongimonSelectionPolicy(SelectionPolicy):
     builds. Returns the top-ranked 4-Pokemon roster.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._battle_policy = GreedyBattlePolicy()
         self._n_active = 2

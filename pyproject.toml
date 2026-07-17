@@ -44,9 +44,9 @@ select = [
     "T20",              # flake8-print
 ]
 ignore = [
-    "T201",   # print is okay for game logs
-    "N802",   # allow UPPER_CASE in test functions
-    "S101",   # allow assert in tests
+    "T201",  
+    "N802",   
+    "S101",  
 ]
 
 [tool.ruff.lint.isort]
@@ -60,7 +60,7 @@ indent-style = "space"
 strict = true
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = ["tests/"]
+exclude = ["tests/", "legacy/"]
 packages = ["src"]
 
 [[tool.mypy.overrides]]
@@ -71,6 +71,12 @@ follow_imports = "skip"
 [[tool.mypy.overrides]]
 module = "tests.*"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "legacy.*"
+ignore_errors = true
+
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

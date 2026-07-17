@@ -93,7 +93,7 @@ def species_role(species: PokemonSpecies) -> str:
     return role
 
 
-def _detect_role(base: tuple) -> tuple[str, str]:
+def _detect_role(base: tuple[int, ...]) -> tuple[str, str]:
     """Detect role from base stats.
 
     Args:
@@ -125,7 +125,7 @@ def _detect_role(base: tuple) -> tuple[str, str]:
     return "mixed", "allrounder"
 
 
-def _pick_evs_and_nature(role: str, base: tuple) -> tuple[tuple, int]:
+def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
     """Pick EV spread and nature for a role.
 
     Args:
@@ -164,9 +164,10 @@ def _pick_moves(species: PokemonSpecies) -> list[int]:
         List of up to 4 move indices into species.moves.
     """
     damaging = [
-        m for m in species.moves
-        if m.base_power > 0 and m.category in (Category.PHYSICAL, Category.SPECIAL,
-                                                Category.PHYSICAL.value, Category.SPECIAL.value)
+        m
+        for m in species.moves
+        if m.base_power > 0
+        and m.category in (Category.PHYSICAL, Category.SPECIAL, Category.PHYSICAL.value, Category.SPECIAL.value)
     ]
 
     scored = []
