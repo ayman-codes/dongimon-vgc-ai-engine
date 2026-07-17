@@ -8,12 +8,12 @@ GreedyBattlePolicy to determine the empirically strongest team.
 import time
 from typing import Any
 
+from numpy.random import default_rng
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.battle_engine import BattleEngine, BattleRuleParam
 from vgc2.battle_engine.game_state import State, get_battle_teams
 from vgc2.battle_engine.team import Team
 from vgc2.battle_engine.view import StateView, TeamView
-from vgc2.util.rng import ZERO_RNG
 
 
 def run_battle_royale(
@@ -60,6 +60,7 @@ def run_battle_royale(
     if not hydrated:
         return top_teams[0] if top_teams else []
 
+    battle_rng = default_rng()
     policy = GreedyBattlePolicy()
     wins = {id(t): 0 for t, _ in hydrated}
     losses = {id(t): 0 for t, _ in hydrated}
@@ -78,7 +79,7 @@ def run_battle_royale(
             for _ in range(n_battles):
                 battle_teams = get_battle_teams(team_a, team_b, 2, 2)
                 state = State(battle_teams)
-                engine = BattleEngine(state, rng=ZERO_RNG)
+                engine = BattleEngine(state, rng=battle_rng)
 
                 view_a = TeamView(team_a)
                 view_b = TeamView(team_b)

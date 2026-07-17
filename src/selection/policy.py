@@ -78,19 +78,19 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                 results[my_pair] = total_win_rate / len(opp_pairs)
 
         ranked_pairs = sorted(results.keys(), key=lambda p: results[p], reverse=True)
-        num_pairs = max_size // n_active
 
-        if len(ranked_pairs) < num_pairs:
-            final_selection = []
-            for pair in ranked_pairs:
-                final_selection.extend(list(pair))
-            remaining = [i for i in range(len(my_full_team.members)) if i not in final_selection]
-            final_selection.extend(remaining)
-            return final_selection[:max_size]
+        final_selection: list[int] = []
+        seen: set[int] = set()
+        for pair in ranked_pairs:
+            for idx in pair:
+                if idx not in seen and len(final_selection) < max_size:
+                    seen.add(idx)
+                    final_selection.append(idx)
+            if len(final_selection) >= max_size:
+                break
 
-        final_selection = []
-        for i in range(num_pairs):
-            pair = ranked_pairs[i]
-            final_selection.extend(list(pair))
+        if len(final_selection) < max_size:
+            remaining = [i for i in range(len(my_full_team.members)) if i not in seen]
+            final_selection.extend(remaining[: max_size - len(final_selection)])
 
-        return final_selection
+        return final_selection[:max_size]

@@ -74,8 +74,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         pool_size = max(max_team_size, int(len(sorted_species) * (1 - cfg.pruning_percentage)))
         pool_species = sorted_species[:pool_size]
 
-        pool_index_map = {s: i for i, s in enumerate(pool_species)}
-        pool_viability = {pool_index_map[s]: viability[s] for s in pool_species}
+        pool_viability = {s: viability[s] for s in pool_species}
 
         try:
             top_teams = run_evolution(

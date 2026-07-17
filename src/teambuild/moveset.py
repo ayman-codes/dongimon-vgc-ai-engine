@@ -57,9 +57,18 @@ def get_role_aware_moveset(
         move_scores[move]["stat_syn"] = stat_syn
         move_scores[move]["speed_syn"] = speed_syn
 
+    max_damage = max((s.get("damage", 0) for s in move_scores.values()), default=1)
+    max_utility = max((s.get("utility", 0) for s in move_scores.values()), default=1)
+    max_stat_syn = max((s.get("stat_syn", 0) for s in move_scores.values()), default=1)
+    max_speed_syn = max((s.get("speed_syn", 0) for s in move_scores.values()), default=1)
+
     def get_final_score(move: Any) -> float:
         s = move_scores.get(move, {})
-        return s.get("damage", 0) + s.get("utility", 0) + s.get("stat_syn", 0) + s.get("speed_syn", 0)
+        d = s.get("damage", 0) / max_damage
+        u = s.get("utility", 0) / max_utility
+        st = s.get("stat_syn", 0) / max_stat_syn
+        sp = s.get("speed_syn", 0) / max_speed_syn
+        return d + u + st + sp
 
     sorted_moves = sorted(move_scores.keys(), key=get_final_score, reverse=True)
     top_4 = sorted_moves[:4]

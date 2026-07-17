@@ -121,28 +121,12 @@ def _calculate_utility_score(
     my_team_members = my_full_team.members
     all_opp_species = [p.species for p in all_opp_species_views if hasattr(p, "species") and p.species]
 
-    sum(1 for s in all_opp_species if Type.FIRE in s.types)
-    sum(1 for p in my_team_members if Type.FIRE in p.species.types)
-    sum(1 for s in all_opp_species if Type.WATER in s.types)
-    sum(1 for p in my_team_members if Type.WATER in p.species.types)
-    sum(1 for s in all_opp_species if Type.ELECTRIC in s.types)
-    sum(1 for p in my_team_members if Type.ELECTRIC in p.species.types)
-    sum(1 for s in all_opp_species if Type.PSYCHIC in s.types)
-    sum(1 for p in my_team_members if Type.PSYCHIC in p.species.types)
-    sum(1 for s in all_opp_species if Type.DRAGON in s.types)
-    sum(1 for p in my_team_members if Type.DRAGON in p.species.types)
+    my_dragon = sum(1 for p in my_team_members if Type.DRAGON in p.species.types)
+    my_flying = sum(1 for p in my_team_members if Type.FLYING in p.species.types)
+    opp_rock = sum(1 for s in all_opp_species if Type.ROCK in s.types)
+    opp_ice = sum(1 for s in all_opp_species if Type.ICE in s.types)
 
-    opp_flying = sum(1 for s in all_opp_species if Type.FLYING in s.types)
-    sum(1 for s in all_opp_species if Type.GROUND in s.types)
-    sum(1 for s in all_opp_species if Type.ROCK in s.types)
-    sum(1 for p in my_team_members if Type.ROCK in p.species.types)
-    sum(1 for s in all_opp_species if Type.STEEL in s.types)
-    sum(1 for p in my_team_members if Type.STEEL in p.species.types)
-    sum(1 for s in all_opp_species if Type.ICE in s.types)
-    sum(1 for p in my_team_members if Type.ICE in p.species.types)
-
-    max(my_team_members, key=lambda p: p.stats[Stat.SPEED])
-    max(all_opp_species_views, key=lambda p: p.species.base_stats[Stat.SPEED], default=None)
+    my_grounded = len(my_team_members) - my_flying
 
     if move.protect:
         max_damage = 0
@@ -237,13 +221,17 @@ def _calculate_utility_score(
 
     if move.weather_start == Weather.RAIN:
         opp_gain = _field_effect_swing(Type.WATER, 1.5, all_opp_species_views)
-        my_gain_nerf = _field_effect_swing(Type.FIRE, 0.5, all_opp_species_views)
-        score += opp_gain - my_gain_nerf
+        opp_nerf = _field_effect_swing(Type.FIRE, 0.5, all_opp_species_views)
+        my_gain = _field_effect_swing(Type.WATER, 1.5, my_team_members)
+        my_nerf = _field_effect_swing(Type.FIRE, 0.5, my_team_members)
+        score += (opp_gain + my_nerf) - (my_gain + opp_nerf)
 
     elif move.weather_start == Weather.SUN:
         opp_gain = _field_effect_swing(Type.FIRE, 1.5, all_opp_species_views)
-        my_gain_nerf = _field_effect_swing(Type.WATER, 0.5, all_opp_species_views)
-        score += opp_gain - my_gain_nerf
+        opp_nerf = _field_effect_swing(Type.WATER, 0.5, all_opp_species_views)
+        my_gain = _field_effect_swing(Type.FIRE, 1.5, my_team_members)
+        my_nerf = _field_effect_swing(Type.WATER, 0.5, my_team_members)
+        score += (opp_gain + my_nerf) - (my_gain + opp_nerf)
 
     elif move.weather_start == Weather.SAND:
         non_immune = sum(
@@ -251,36 +239,29 @@ def _calculate_utility_score(
         )
         if my_team_members:
             score += non_immune * (my_team_members[0].stats[Stat.MAX_HP] / 16)
-        opp_rock_types = sum(1 for s in all_opp_species if Type.ROCK in s.types)
-        score += opp_rock_types * 20
+        score += opp_rock * 20
 
     elif move.weather_start == Weather.SNOW:
         non_immune = sum(1 for p in my_team_members if Type.ICE not in p.species.types)
         if my_team_members:
             score += non_immune * (my_team_members[0].stats[Stat.MAX_HP] / 16)
-        opp_ice_types = sum(1 for s in all_opp_species if Type.ICE in s.types)
-        score += opp_ice_types * 20
+        score += opp_ice * 20
 
     elif move.field_start == Terrain.ELECTRIC_TERRAIN:
         opp_gain = _field_effect_swing(Type.ELECTRIC, 1.3, all_opp_species_views)
         score += opp_gain
-        has_sleep = any(any(m.status == Status.SLEEP for m in p.moves) for p in my_team_members)
-        if has_sleep and my_team_members:
-            avg_hp = sum(p.stats[Stat.MAX_HP] for p in my_team_members) / len(my_team_members)
-            sleep_bonus = 0.0
-            for p in my_team_members:
-                for m in p.moves:
-                    if m.status == Status.SLEEP:
-                        pot = (m.base_power * p.stats[Stat.ATTACK]) / avg_hp * 1.5 * 100
-                        if pot > sleep_bonus:
-                            sleep_bonus = pot
-            score += sleep_bonus
+        our_sleep_moves = sum(1 for p in my_team_members for m in p.moves if m.status == Status.SLEEP)
+        if our_sleep_moves > 0:
+            score -= our_sleep_moves * 15
+        opp_sleep_moves = sum(1 for s in all_opp_species for m in s.moves if m.status == Status.SLEEP)
+        if opp_sleep_moves > 0:
+            score += my_grounded * 15
 
     elif move.field_start == Terrain.GRASSY_TERRAIN:
         standard_unit = my_team_members[0].stats[Stat.MAX_HP] / 16 if my_team_members else 0
         opp_grass_count = sum(1 for s in all_opp_species if Type.GRASS in s.types)
         score += opp_grass_count * (standard_unit * 0.75)
-        score += (6 - opp_flying) * (standard_unit / 2)
+        score += my_grounded * (standard_unit / 2)
 
     elif move.field_start == Terrain.PSYCHIC_TERRAIN:
         standard_unit = my_team_members[0].stats[Stat.MAX_HP] / 16 if my_team_members else 0
@@ -288,18 +269,17 @@ def _calculate_utility_score(
         score += opp_psychic_count * (standard_unit * 0.75)
         has_priority = any(any(m.priority > 0 for m in p.moves) for p in my_team_members)
         if has_priority:
-            score += (6 - opp_flying) * 15
+            score += my_grounded * 15
 
     elif move.field_start == Terrain.MISTY_TERRAIN:
         standard_unit = my_team_members[0].stats[Stat.MAX_HP] / 16 if my_team_members else 0
-        me_dragon_count = sum(1 for p in my_team_members if Type.DRAGON in p.species.types)
-        score += me_dragon_count * (standard_unit / 2)
+        score += my_dragon * (standard_unit / 2)
         can_status = any(
             any(m.status in {Status.SLEEP, Status.BURN, Status.TOXIC, Status.PARALYZED} for m in p.moves)
             for p in my_team_members
         )
         if can_status:
-            score += (6 - opp_flying) * 15
+            score += my_grounded * 15
 
     return score
 

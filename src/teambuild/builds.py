@@ -5,7 +5,9 @@ optimal EV spread, nature, and moveset per species — no damage calculations,
 pure base-stat arithmetic.
 """
 
-from vgc2.battle_engine.modifiers import Category, Nature, Stat
+from typing import Any
+
+from vgc2.battle_engine.modifiers import Category, Nature, Stat, Status, Terrain, Weather
 from vgc2.battle_engine.pokemon import Pokemon, PokemonSpecies
 
 
@@ -150,12 +152,42 @@ def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[
     return (252, 128, 0, 128, 0, 2), Nature.HARDY
 
 
+def _move_utility(move: Any, species: PokemonSpecies) -> float:
+    """Score a non-damaging move by its utility value.
+
+    Args:
+        move: The Move to evaluate.
+        species: The Pokemon species using the move.
+
+    Returns:
+        Float utility score.
+    """
+    if move.heal > 0:
+        return 80.0
+    if any(b > 0 for b in move.boosts) and move.self_boosts:
+        boost_sum = sum(b for b in move.boosts if b > 0)
+        return 30.0 * float(boost_sum)
+    if move.hazard is not None:
+        return 50.0
+    if move.protect:
+        return 40.0
+    if move.status != Status.NONE:
+        return 35.0
+    if move.toggle_reflect or move.toggle_lightscreen:
+        return 60.0
+    if move.toggle_tailwind or move.toggle_trickroom:
+        return 45.0
+    if move.weather_start != Weather.CLEAR or move.field_start != Terrain.NONE:
+        return 50.0
+    return 0.0
+
+
 def _pick_moves(species: PokemonSpecies) -> list[int]:
     """Select the best 4 moves for a species.
 
-    Selects damaging moves prioritising high base power, STAB, and
-    type diversity (unique types). If fewer than 4 damaging moves
-    exist, pads with status moves.
+    Scores all moves by a combination of damage potential (STAB-weighted
+    base power) and utility value (setup, recovery, hazards, status, etc.).
+    Damaging moves are prioritised for type diversity.
 
     Args:
         species: The Pokemon species.
@@ -163,32 +195,33 @@ def _pick_moves(species: PokemonSpecies) -> list[int]:
     Returns:
         List of up to 4 move indices into species.moves.
     """
-    damaging = [
-        m
-        for m in species.moves
-        if m.base_power > 0
-        and m.category in (Category.PHYSICAL, Category.SPECIAL, Category.PHYSICAL.value, Category.SPECIAL.value)
-    ]
+    damaging_cats = (Category.PHYSICAL, Category.SPECIAL, Category.PHYSICAL.value, Category.SPECIAL.value)
 
     scored = []
-    for m in damaging:
-        stab = 1.5 if m.pkm_type in species.types else 1.0
-        scored.append((m.base_power * stab, m))
+    for m in species.moves:
+        damage_score = 0.0
+        if m.base_power > 0 and m.category in damaging_cats:
+            stab = 1.5 if m.pkm_type in species.types else 1.0
+            damage_score = m.base_power * stab
+        utility_score = _move_utility(m, species)
+        scored.append((damage_score + utility_score, m))
 
     scored.sort(key=lambda x: -x[0])
 
-    selected = []
-    seen_types = set()
+    selected: list[Any] = []
+    seen_damage_types = set()
     for _score, move in scored:
-        if move.pkm_type not in seen_types:
-            selected.append(move)
-            seen_types.add(move.pkm_type)
+        if move.base_power > 0:
+            if move.pkm_type in seen_damage_types and any(m.base_power > 0 for m in selected):
+                continue
+            seen_damage_types.add(move.pkm_type)
+        selected.append(move)
         if len(selected) == 4:
             break
 
     if len(selected) < 4:
         for move in species.moves:
-            if move not in selected and move.base_power == 0 and len(selected) < 4:
+            if move not in selected and len(selected) < 4:
                 selected.append(move)
 
     indices = []
