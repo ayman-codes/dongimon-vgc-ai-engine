@@ -6,8 +6,49 @@ natures, and move sets. Used by both Selection and Teambuild policies.
 
 from typing import Any
 
-from vgc2.battle_engine.modifiers import Nature, Stat
+from vgc2.battle_engine.modifiers import Nature, Stat, Status
 from vgc2.battle_engine.pokemon import Pokemon, PokemonSpecies
+
+
+def _archetype_moves(name: str, predicted_moveset: list[Any], species: PokemonSpecies) -> list[Any]:
+    """Select moves appropriate for a given archetype.
+
+    Walls get healing/status/support moves prioritised.
+    Sweepers get damaging + setup moves prioritised.
+    Mixed attackers get a balance of both.
+
+    Args:
+        name: Archetype name string.
+        predicted_moveset: Full predicted moveset for the species.
+        species: The Pokemon species.
+
+    Returns:
+        List of up to 4 Move objects.
+    """
+    low = name.lower()
+    healing = [m for m in predicted_moveset if m.heal > 0]
+    boosting = [m for m in predicted_moveset if any(b > 0 for b in m.boosts) and m.self_boosts]
+    status_moves = [m for m in predicted_moveset if m.status != Status.NONE and m.base_power == 0]
+    damaging = [m for m in predicted_moveset if m.base_power > 0]
+    screens = [m for m in predicted_moveset if m.toggle_reflect or m.toggle_lightscreen]
+    hazards = [m for m in predicted_moveset if m.hazard is not None]
+
+    if "wall" in low:
+        ordered = healing + screens + hazards + status_moves + boosting + damaging
+    elif "sweeper" in low:
+        ordered = damaging + boosting + status_moves + healing
+    else:
+        ordered = damaging + boosting + healing + status_moves + screens + hazards
+
+    seen = set()
+    result = []
+    for m in ordered:
+        if m not in seen:
+            seen.add(m)
+            result.append(m)
+        if len(result) >= 4:
+            break
+    return result[:4]
 
 
 def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any]) -> list[tuple[str, Pokemon]]:
@@ -15,7 +56,8 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any
 
     Produces up to 10 builds: fast sweeper (physical/special), bulky attacker
     (physical/special), defensive walls (physical/special), and mixed attackers
-    if the species has balanced offensive stats.
+    if the species has balanced offensive stats. Each archetype gets a tailored
+    move selection (walls prefer healing/support, sweepers prefer damaging moves).
 
     Args:
         species: The Pokemon species to build for.
@@ -27,16 +69,6 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any
     if not predicted_moveset:
         return []
 
-    move_indices = []
-    for move in predicted_moveset:
-        try:
-            idx = species.moves.index(move)
-            move_indices.append(idx)
-        except ValueError:
-            continue
-    if not move_indices:
-        return []
-
     builds: list[tuple[str, Pokemon]] = []
     base_stats = species.base_stats
     ivs = (31, 31, 31, 31, 31, 31)
@@ -44,7 +76,17 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any
     lv = 50
 
     def _make(name: str, evs: tuple[int, ...], nature: int) -> None:
-        builds.append((name, Pokemon(species, move_indices, lv, evs, ivs, nature)))
+        moves = _archetype_moves(name, predicted_moveset, species)
+        indices = []
+        for move in moves:
+            try:
+                idx = species.moves.index(move)
+                indices.append(idx)
+            except ValueError:
+                continue
+        if not indices:
+            indices = list(range(min(4, len(species.moves))))
+        builds.append((name, Pokemon(species, indices, lv, evs, ivs, nature)))
 
     _make("Fast Physical Sweeper", (4, 252, 0, 0, 0, 252), Nature.JOLLY)
     _make("Fast Special Sweeper", (4, 0, 0, 252, 0, 252), Nature.TIMID)

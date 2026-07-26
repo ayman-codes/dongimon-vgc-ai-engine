@@ -56,7 +56,6 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         rng = default_rng()
         cfg = self._config
 
-        # Stage 1: builds and viability
         builds_cache = {}
         for species in roster:
             build = create_single_optimal_build(species)
@@ -66,6 +65,12 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         viability = {s: species_power(s) for s in builds_cache}
 
         sorted_species = sorted(viability, key=lambda s: viability[s], reverse=True)
+
+        hp_threshold = cfg.hp_filter_min
+        if hp_threshold > 0:
+            hp_eligible = [s for s in sorted_species if s.base_stats[0] >= hp_threshold]
+            if len(hp_eligible) >= max_team_size:
+                sorted_species = hp_eligible
 
         if not cfg.enable_evolution:
             top_species = sorted_species[:max_team_size]
@@ -87,8 +92,9 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                 elite_fraction=cfg.elite_fraction,
                 rng=rng,
             )
-        except Exception:
-            top_teams = [list(range(max_team_size))]
+        except (RuntimeError, ValueError, IndexError):
+            safe_size = min(max_team_size, len(pool_species))
+            top_teams = [list(range(safe_size))]
 
         if cfg.enable_battle_royale:
             try:
@@ -101,7 +107,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                     max_time_sec=cfg.battle_royale_timeout_sec,
                     params=self.params,
                 )
-            except Exception:
+            except (RuntimeError, ValueError, IndexError):
                 best_team_idx = top_teams[0]
         else:
             best_team_idx = top_teams[0]

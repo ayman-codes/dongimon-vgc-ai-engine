@@ -65,13 +65,13 @@ from src.config.constants import (
     THREAT_TOP_MOVES,
     TYPE_EFF_HALF_RESIST,
     TYPE_EFF_IMMUNE,
+    TYPE_EFF_MATRIX,
     TYPE_EFF_QUAD_RESIST,
     TYPE_EFF_QUAD_SUPER,
     TYPE_EFF_SUPER,
     TYPE_MATCHUP_SCALE,
 )
 from src.shared.move_utils import is_status_move
-from src.shared.types import type_effectiveness, vgc2_type_to_name
 
 
 def score_offensive_move(
@@ -465,6 +465,9 @@ def estimate_incoming_threat(
                 if pot_move.category == Category.OTHER or pot_move.base_power == 0:
                     continue
 
+                if pot_move.pkm_type not in opp_pkm.types:
+                    continue
+
                 bp = float(pot_move.base_power)
                 stab = STAB_MULTIPLIER if pot_move.pkm_type in opp_pkm.types else 1.0
                 eff = _get_type_eff_string(pot_move.pkm_type, my_pokemon.types)
@@ -742,21 +745,24 @@ def calculate_focus_fire_bonus(
 
 
 def _get_type_eff_string(move_type: Any, defender_types: list[Any]) -> float:
-    """Get type effectiveness using string names regardless of input type.
+    """Get type effectiveness via pre-computed matrix lookup.
 
-    Handles both vgc2 Type enum members and lowercase strings internally.
+    Indexes into TYPE_EFF_MATRIX directly using Type enum integer values,
+    avoiding string conversion and dict lookups.
 
     Args:
-        move_type: Type enum or string name.
+        move_type: vgc2 Type enum member.
         defender_types: List of vgc2 Type enums from the defender.
 
     Returns:
         Combined effectiveness multiplier.
     """
-    atk_name = move_type if isinstance(move_type, str) else vgc2_type_to_name(move_type.value)
-
-    def_names = [vgc2_type_to_name(t.value) for t in defender_types]
-    return type_effectiveness(atk_name, def_names)
+    atk_idx = move_type.value if hasattr(move_type, "value") else int(move_type)
+    eff = 1.0
+    for dt in defender_types:
+        def_idx = dt.value if hasattr(dt, "value") else int(dt)
+        eff *= TYPE_EFF_MATRIX[atk_idx][def_idx]
+    return eff
 
 
 def _status_value(

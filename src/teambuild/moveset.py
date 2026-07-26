@@ -7,13 +7,14 @@ synergy) and selects the optimal set of 4 for a given archetype.
 
 from typing import Any
 
-from vgc2.battle_engine import BattleRuleParam, calculate_damage
+from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.game_state import State
 from vgc2.battle_engine.modifiers import Category, Stat
 from vgc2.battle_engine.pokemon import BattlingPokemon, Pokemon
 from vgc2.battle_engine.team import BattlingTeam
 
 from src.shared.archetypes import create_generic_build_for_species
+from src.shared.cache import cached_calculate_damage as calculate_damage
 from src.teambuild.scoring import calculate_damage_score, calculate_utility_score
 
 

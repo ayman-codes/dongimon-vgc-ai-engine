@@ -62,16 +62,17 @@ def run_battle_royale(
 
     battle_rng = default_rng()
     policy = GreedyBattlePolicy()
-    wins = {id(t): 0 for t, _ in hydrated}
-    losses = {id(t): 0 for t, _ in hydrated}
+    n_teams = len(hydrated)
+    wins = [0] * n_teams
+    losses = [0] * n_teams
 
-    for i in range(len(hydrated)):
-        for j in range(i + 1, len(hydrated)):
+    for i in range(n_teams):
+        for j in range(i + 1, n_teams):
             if time.perf_counter() - start_time > max_time_sec:
                 break
 
-            team_a_idx, team_a_pkm = hydrated[i]
-            team_b_idx, team_b_pkm = hydrated[j]
+            _, team_a_pkm = hydrated[i]
+            _, team_b_pkm = hydrated[j]
 
             team_a = Team(members=team_a_pkm)
             team_b = Team(members=team_b_pkm)
@@ -92,19 +93,19 @@ def run_battle_royale(
                     engine.run_turn((cmd0, cmd1))
 
                 if engine.winning_side == 0:
-                    wins[id(team_a_idx)] += 1
-                    losses[id(team_b_idx)] += 1
+                    wins[i] += 1
+                    losses[j] += 1
                 elif engine.winning_side == 1:
-                    wins[id(team_b_idx)] += 1
-                    losses[id(team_a_idx)] += 1
+                    wins[j] += 1
+                    losses[i] += 1
 
-    if all(v == 0 for v in wins.values()):
+    if all(v == 0 for v in wins):
         return top_teams[0]
 
-    def _win_rate(x: tuple[list[int], list[Any]]) -> float:
-        w = wins.get(id(x[0]), 0)
-        loss = losses.get(id(x[0]), 0)
+    def _win_rate(idx: int) -> float:
+        w = wins[idx]
+        loss = losses[idx]
         return w / max(w + loss, 1)
 
-    best_team = max(hydrated, key=_win_rate)
-    return best_team[0]
+    best_idx = max(range(n_teams), key=_win_rate)
+    return hydrated[best_idx][0]

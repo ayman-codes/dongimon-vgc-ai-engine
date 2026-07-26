@@ -3,11 +3,12 @@
 Provides population initialisation, single-point crossover with
 deduplication, per-position mutation, and the team-level fitness
 function combining viability, type coverage, type defence,
-stat diversity, and role diversity.
+stat diversity, role diversity, and coverage balance.
 """
 
 from typing import Any
 
+import numpy as np
 from vgc2.battle_engine.modifiers import Category, Stat, Type
 
 from src.shared.types import type_effectiveness, vgc2_type_to_name
@@ -35,6 +36,15 @@ VGC2_TYPE_ORDER = [
 ]
 
 TYPE_NAMES = [vgc2_type_to_name(t.value) for t in VGC2_TYPE_ORDER]
+
+N_TYPES = 18
+
+_COVERAGE_BALANCE_WEIGHT = 0.15
+_VIABILITY_WEIGHT = 0.25
+_COVERAGE_WEIGHT = 0.20
+_DEFENCE_WEIGHT = 0.20
+_STAT_DIVERSITY_WEIGHT = 0.10
+_ROLE_DIVERSITY_WEIGHT = 0.10
 
 
 def _type_name(t: Any) -> str:
@@ -87,17 +97,163 @@ def init_population(
     return population
 
 
+def seed_coverage_teams(
+    pool_species: list[Any],
+    viability_scores: dict[Any, float],
+    team_size: int,
+    n_seeds: int,
+    rng: Any,
+) -> list[list[int]]:
+    """Generate seed teams using JJJ-style type-rank coverage selection.
+
+    Builds a 19xN type-coverage matrix ranked by damage potential, then
+    greedily selects teams that minimise coverage range across all 19 types.
+
+    Args:
+        pool_species: Species pool to select from.
+        viability_scores: Dict mapping species -> viability score.
+        team_size: Species per team.
+        n_seeds: Number of seed teams to generate.
+        rng: NumPy Generator.
+
+    Returns:
+        List of seed teams (each a list of species indices).
+    """
+    n = len(pool_species)
+
+    matrix = _build_type_coverage_matrix(pool_species, viability_scores)
+
+    ranked = _rank_transform(matrix)
+
+    seeds = []
+    for seed_offset in range(n_seeds):
+        team = _greedy_coverage_select(ranked, n, team_size, rng, seed_offset)
+        seeds.append(team)
+
+    return seeds
+
+
+def _build_type_coverage_matrix(
+    pool_species: list[Any],
+    viability_scores: dict[Any, float],
+) -> np.ndarray:
+    """Build a 19xN matrix of type-coverage damage proxies.
+
+    Each cell (type_i, species_j) estimates how well species_j hits type_i,
+    combining type effectiveness with raw species power.
+
+    Args:
+        pool_species: List of species.
+        viability_scores: Species -> power dict.
+
+    Returns:
+        NumPy array of shape (19, N).
+    """
+    n = len(pool_species)
+    matrix = np.zeros((N_TYPES + 1, n), dtype=np.float32)
+
+    for j, species in enumerate(pool_species):
+        power = max(viability_scores.get(species, 0), 0.001)
+        spec_types = [vgc2_type_to_name(t.value) for t in species.types]
+        for i, atk_type in enumerate(VGC2_TYPE_ORDER):
+            atk_name = vgc2_type_to_name(atk_type.value)
+            best_eff = 0.0
+            for move in species.moves:
+                if move.base_power <= 0:
+                    continue
+                eff = type_effectiveness(atk_name, spec_types)
+                if eff > best_eff:
+                    best_eff = eff
+            matrix[i, j] = best_eff * power
+
+    return matrix
+
+
+def _rank_transform(matrix: np.ndarray) -> np.ndarray:
+    """Rank-transform each row of the matrix (argsort of argsort).
+
+    Lower rank = better coverage against that type.
+
+    Args:
+        matrix: 2D array of shape (N_types, N_species).
+
+    Returns:
+        Rank-transformed array of the same shape.
+    """
+    ranked = np.zeros_like(matrix, dtype=np.int32)
+    for i in range(matrix.shape[0]):
+        order = np.argsort(matrix[i])
+        ranked[i] = np.argsort(order)
+    return ranked
+
+
+def _greedy_coverage_select(
+    ranked: np.ndarray,
+    n_species: int,
+    team_size: int,
+    rng: Any,
+    seed_offset: int,
+) -> list[int]:
+    """Greedy coverage selection minimising range across types.
+
+    Args:
+        ranked: Rank-transformed type-coverage matrix.
+        n_species: Total species count.
+        team_size: Desired team size.
+        rng: NumPy Generator.
+        seed_offset: Offset for deterministic variety.
+
+    Returns:
+        List of selected species indices.
+    """
+    sum_ranks = ranked.sum(axis=0)
+
+    start = int(rng.integers(0, min(3, n_species)))
+    if seed_offset > 0:
+        start = int(rng.integers(0, min(5 + seed_offset, n_species)))
+    selected = [int(np.argmin(sum_ranks))] if seed_offset == 0 else [start]
+
+    coverage = ranked[:, selected[0]].copy().astype(np.float64)
+
+    for _ in range(1, team_size):
+        old_range = float(np.max(coverage) - np.min(coverage))
+        best_idx = -1
+        best_val = -1e9
+
+        for idx in range(n_species):
+            if idx in selected:
+                continue
+            new_cov = coverage + ranked[:, idx].astype(np.float64)
+            new_range = float(np.max(new_cov) - np.min(new_cov))
+            delta = old_range - new_range
+            val = 0.45 * float(sum_ranks[idx]) + 0.45 * delta
+            if val > best_val:
+                best_val = val
+                best_idx = idx
+
+        if best_idx == -1:
+            remaining = [i for i in range(n_species) if i not in selected]
+            if remaining:
+                best_idx = remaining[0]
+
+        selected.append(best_idx)
+        coverage += ranked[:, best_idx].astype(np.float64)
+
+    return selected
+
+
 def crossover(
     parent_a: list[int],
     parent_b: list[int],
     pool_species: list[Any],
     viability_scores: dict[Any, float],
     rng: Any,
+    team_size: int = 6,
 ) -> tuple[list[int], list[int]]:
     """Single-point crossover with deduplication.
 
-    Slices both parents at a random point between 1 and 5, swaps tails
-    to produce two children. Duplicate species within a child are resolved
+    Slices both parents at a random point between 1 and team_size-1, swaps
+    tails to produce two children. Duplicate species within a child are resolved
     by replacing with the highest-viability unused species from the pool.
 
     Args:
@@ -106,17 +262,18 @@ def crossover(
         pool_species: Full pool list for deduplication fallback.
         viability_scores: Dict mapping species -> float viability score.
         rng: NumPy Generator.
+        team_size: Target team size (default 6).
 
     Returns:
-        Tuple of two child teams, each with 6 unique species indices.
+        Tuple of two child teams, each with team_size unique species indices.
     """
-    point = rng.integers(1, len(parent_a) - 1)
+    point = rng.integers(1, min(len(parent_a) - 1, len(parent_b) - 1))
 
     child1 = parent_a[:point] + parent_b[point:]
     child2 = parent_b[:point] + parent_a[point:]
 
-    child1 = _deduplicate(child1, pool_species, viability_scores, rng)
-    child2 = _deduplicate(child2, pool_species, viability_scores, rng)
+    child1 = _deduplicate(child1, pool_species, viability_scores, rng, team_size)
+    child2 = _deduplicate(child2, pool_species, viability_scores, rng, team_size)
 
     return child1, child2
 
@@ -126,6 +283,7 @@ def _deduplicate(
     pool_species: list[Any],
     viability_scores: dict[Any, float],
     rng: Any,
+    team_size: int = 6,
 ) -> list[int]:
     """Remove duplicate indices from a team, replacing with unused species.
 
@@ -134,9 +292,10 @@ def _deduplicate(
         pool_species: Full species pool.
         viability_scores: Dict mapping species -> viability score.
         rng: NumPy Generator.
+        team_size: Desired team size (default 6).
 
     Returns:
-        Team with 6 unique indices.
+        Team with team_size unique indices.
     """
     seen = set()
     result = []
@@ -145,7 +304,7 @@ def _deduplicate(
             seen.add(idx)
             result.append(idx)
 
-    while len(result) < 6:
+    while len(result) < team_size:
         unused = [i for i in range(len(pool_species)) if i not in seen]
         if not unused:
             break
@@ -258,18 +417,19 @@ def calculate_team_fitness(
     pool_species: list[Any],
     viability_scores: dict[Any, float],
 ) -> float:
-    """Compute fitness for a team of 6 species.
+    """Compute fitness for a team of species.
 
-    Five components weighted into a single score:
+    Six components weighted into a single score:
 
     1. **Viability** — sum of individual species power (normalised to 0–1).
     2. **Type coverage** — fraction of 18 types hit super-effectively.
     3. **Type defence** — fraction of weaknesses covered by allies.
     4. **Stat diversity** — bonus for mixing physical/special attackers and speed tiers.
     5. **Role diversity** — bonus for having sweeper + wall + mixed roles.
+    6. **Coverage balance** — how evenly the team threatens all 19 types.
 
     Args:
-        team_indices: List of 6 indices into pool_species.
+        team_indices: List of indices into pool_species.
         pool_species: Full species pool.
         viability_scores: Dict mapping species -> float viability score.
 
@@ -283,12 +443,20 @@ def calculate_team_fitness(
     td = _fitness_type_defence(members)
     sd = _fitness_stat_diversity(members)
     rd = _fitness_role_diversity(members)
+    cb = _fitness_coverage_balance(members)
 
-    return 0.30 * v + 0.25 * tc + 0.25 * td + 0.10 * sd + 0.10 * rd
+    return (
+        _VIABILITY_WEIGHT * v
+        + _COVERAGE_WEIGHT * tc
+        + _DEFENCE_WEIGHT * td
+        + _STAT_DIVERSITY_WEIGHT * sd
+        + _ROLE_DIVERSITY_WEIGHT * rd
+        + _COVERAGE_BALANCE_WEIGHT * cb
+    )
 
 
 def _fitness_viability(members: list[Any], viability_scores: dict[Any, float]) -> float:
-    """Sum of species power normalised by max possible.
+    """Normalised species power sum.
 
     Args:
         members: List of species on the team.
@@ -311,8 +479,6 @@ def _fitness_type_coverage(members: list[Any]) -> float:
     Returns:
         Coverage fraction (0–1).
     """
-    {vgc2_type_to_name(t.value): t for t in VGC2_TYPE_ORDER}
-
     covered = set()
     for species in members:
         for move in species.moves:
@@ -324,14 +490,11 @@ def _fitness_type_coverage(members: list[Any]) -> float:
                 if eff > 1.0:
                     covered.add(def_name)
 
-    return len(covered) / 18.0 if len(covered) else 0.0
+    return len(covered) / N_TYPES if len(covered) else 0.0
 
 
 def _fitness_type_defence(members: list[Any]) -> float:
-    """Fraction of team weaknesses that are resisted or immunised by an ally.
-
-    For each member's defensive weaknesses, checks if any other member
-    resists or is immune to that type.
+    """Fraction of weaknesses covered by ally resistance or immunity.
 
     Args:
         members: List of species.
@@ -364,10 +527,7 @@ def _fitness_type_defence(members: list[Any]) -> float:
 
 
 def _fitness_stat_diversity(members: list[Any]) -> float:
-    """Stat diversity score.
-
-    Checks for a mix of physical and special attackers, and a mix of
-    fast and slow speed tiers.
+    """Score for mixing physical/special attackers and fast/slow speed tiers.
 
     Args:
         members: List of species.
@@ -384,7 +544,6 @@ def _fitness_stat_diversity(members: list[Any]) -> float:
         for species in members
     )
 
-    sorted(s.moves[0].category for s in members if s.moves) if all(s.moves for s in members) else []
     speed_values = [s.base_stats[Stat.SPEED] for s in members]
     median_speed = sorted(speed_values)[len(speed_values) // 2] if speed_values else 50
     has_fast = any(sp > median_speed + 10 for sp in speed_values)
@@ -400,9 +559,7 @@ def _fitness_stat_diversity(members: list[Any]) -> float:
 
 
 def _fitness_role_diversity(members: list[Any]) -> float:
-    """Role diversity score.
-
-    Rewards having at least one sweeper, one wall, and one mixed role.
+    """Role diversity score. Rewards having sweeper + wall + mixed.
 
     Args:
         members: List of species.
@@ -416,3 +573,37 @@ def _fitness_role_diversity(members: list[Any]) -> float:
         if required not in roles:
             missing += 1
     return 1.0 - missing * 0.3
+
+
+def _fitness_coverage_balance(members: list[Any]) -> float:
+    """Coverage balance score — how evenly the team threatens all types.
+
+    Computes the total super-effective coverage count per type across all
+    team members. A perfectly balanced team threatens every type roughly
+    equally (low range). A team with blind spots has high range.
+
+    Args:
+        members: List of species.
+
+    Returns:
+        Balance score (0–1). 1.0 = perfect balance, 0.0 = worst.
+    """
+    coverage_per_type = dict.fromkeys(TYPE_NAMES, 0)
+    for species in members:
+        for move in species.moves:
+            if move.base_power <= 0:
+                continue
+            atk_name = _type_name(move.pkm_type)
+            for def_name in TYPE_NAMES:
+                eff = type_effectiveness(atk_name, [def_name])
+                if eff > 1.0:
+                    coverage_per_type[def_name] = coverage_per_type.get(def_name, 0) + 1
+
+    counts = list(coverage_per_type.values())
+    if not counts:
+        return 0.0
+    min_cov = min(counts)
+    max_cov = max(counts)
+    if max_cov == min_cov:
+        return 1.0
+    return 1.0 - (max_cov - min_cov) / max(max_cov, 1)

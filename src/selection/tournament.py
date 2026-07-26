@@ -67,11 +67,13 @@ def run_sub_tournament(
 
     for opp_build_a, opp_build_b in build_matchups:
         my_pair_pkm = [my_full_team.members[i] for i in my_pair_indices]
-        my_reserve = [
-            my_full_team.members[i]
+        remaining = [
+            (i, my_full_team.members[i])
             for i in range(len(my_full_team.members))
             if i not in my_pair_indices
-        ][:2]
+        ]
+        remaining.sort(key=lambda x: sum(x[1].stats[1:6]), reverse=True)
+        my_reserve = [pkm for _, pkm in remaining[:2]]
         my_battling_team = BattlingTeam(active=my_pair_pkm, reserve=my_reserve)
 
         opp_predicted_pair = [opp_build_a, opp_build_b]

@@ -33,12 +33,12 @@ from vgc2.util.generator import gen_team
 from src.battle.policy import DongimonBattlePolicy
 from src.tuning.elo_rating import run_dongimon_elo_epoch
 
-N_TRIALS = 200
+N_TRIALS = 250
 N_BATTLES = 10
 N_EPOCHS = 10
 ELO_K = 32.0
 INITIAL_ELO = 1200.0
-STUDY_NAME = "elo_weight_tuning"
+STUDY_NAME = "elo_weight_tuning_v4"
 SAVE_INTERVAL = 50
 
 _DONGIMON = "Dongimon"
@@ -65,7 +65,7 @@ def _build_opponents() -> dict[str, Callable[[], Any]]:
     for name, mod_path, cls_name in [
         ("JJJ", "competitors.competitor1_jjj", "JJJ_Competitor"),
         ("minimon", "competitors.competitor2_minimon", "minimon"),
-        ("StocKarpador", "competitors.competitor3_stockarpador", "StocKarpadorCompetitor"),
+        ("caaaden", "competitors.competitor_caaaden", "CaaadenCompetitor")
     ]:
         mod = import_module(mod_path)
         cls = getattr(mod, cls_name)

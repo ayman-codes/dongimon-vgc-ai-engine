@@ -42,16 +42,18 @@ class BattleWeights(BaseModel):
 
 
 class SelectionConfig(BaseModel):
-    """Configuration for the Selection Policy simulation tournament.
+    """Configuration for the Selection Policy.
 
     Attributes:
-        simulation_battle_policy_class: Name of the battle policy class used
-            for internal simulations (must be a key in BATTLE_POLICY_REGISTRY).
+        selection_mode: Selection algorithm — 'hybrid' (matrix + simulation),
+            'matrix' (JJJ matrix only), or 'simulate' (full simulation).
+        n_top_candidates: Number of top-ranked rosters to simulate (hybrid mode).
         n_active: Number of active Pokémon per side (default 2 for doubles).
         max_team_size: Maximum team size to select (default 4 for VGC).
     """
 
-    simulation_battle_policy_class: str = Field(default="greedy", description="Policy for internal sim battles")
+    selection_mode: str = Field(default="hybrid", description="Selection mode: hybrid, matrix, or simulate")
+    n_top_candidates: int = Field(default=5, ge=1, le=15, description="Top rosters to simulate in hybrid mode")
     n_active: int = Field(default=2, ge=1, le=2, description="Active Pokémon per side")
     max_team_size: int = Field(default=4, ge=1, le=6, description="Maximum team size to select")
 
@@ -63,6 +65,8 @@ class TeambuildConfig(BaseModel):
     algorithm → battle royale simulation.
 
     Attributes:
+        hp_filter_min: Minimum base HP to keep a species (0 = disabled).
+        fitness_mode: Fitness evaluation — 'heuristic' or 'model' (future use).
         pruning_percentage: Fraction of roster to eliminate in Stage 1 (0.0–1.0).
         normalization_sample_size: Number of builds to sample for global max estimation.
         debug: Whether to write detailed CSV debug logs during team building.
@@ -76,6 +80,8 @@ class TeambuildConfig(BaseModel):
         battle_royale_timeout_sec: Max wall-clock time for Stage 3 simulation.
     """
 
+    hp_filter_min: int = Field(default=120, ge=0, le=255, description="Minimum base HP to keep species (0=disabled)")
+    fitness_mode: str = Field(default="heuristic", description="Fitness mode: heuristic or model")
     pruning_percentage: float = Field(default=0.3, ge=0.0, le=1.0, description="Roster pruning fraction")
     normalization_sample_size: int = Field(default=800, ge=1, description="Sample size for global max estimation")
     debug: bool = Field(default=False, description="Enable CSV debug logging")

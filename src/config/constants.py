@@ -9,6 +9,8 @@ from typing import Any
 
 from vgc2.battle_engine.modifiers import Stat
 
+from src.shared.types import TYPE_CHART, TYPE_NAMES
+
 # ── Game Mechanics (immutable Pokemon engine constants) ──
 
 STAB_MULTIPLIER: float = 1.5
@@ -25,10 +27,12 @@ TYPE_EFF_QUAD_SUPER: float = 4.0
 # ── Structural Constants (algorithm architecture) ──
 
 MAX_SCORE: float = 1000.0
-THREAT_TOP_MOVES: int = 15
+THREAT_TOP_MOVES: int = 3
 CHOICE_LOCK_HISTORY_SIZE: int = 5
 CHOICE_LOCK_CONSECUTIVE: int = 3
 BOARD_WEIGHT: float = 0.15
+LOOKAHEAD_MY_ALIVE_MULT: float = 2.0
+LOOKAHEAD_OPP_ALIVE_MULT: float = 2.0
 
 # ── Damage Score & KO Values ──
 
@@ -56,6 +60,7 @@ FF_HEAVY_DAMAGE_BIGGEST_EXTRA: float = 100.0
 
 LETHAL_SURVIVAL_PENALTY_MULT: float = 0.75
 PROPORTIONAL_SURVIVAL_PENALTY_MULT: float = 0.35
+SELF_KO_SURVIVAL_PENALTY_MULT: float = 0.10
 
 # ── Target Priority ──
 
@@ -112,7 +117,7 @@ BASE_STAT_DIVISOR: float = 10.0
 
 FALLBACK_THREAT_BP: float = 80.0
 FALLBACK_THREAT_ACC: float = 0.9
-THREAT_PROXY_SCALE: float = 2.0
+THREAT_PROXY_SCALE: float = 1.2
 DEFAULT_AVG_MOVE_SCORE: float = 50.0
 
 # ── PP Penalty ──
@@ -135,3 +140,12 @@ OFF_THREAT_DOUBLE_SCORE: float = 75.0
 # ── Stat indices for boost evaluation ──
 
 DEFENSIVE_BOOST_STATS: tuple[Any, ...] = (Stat.DEFENSE, Stat.SPECIAL_DEFENSE, Stat.SPEED)
+
+TYPE_EFF_MATRIX: list[list[float]] = [
+    [TYPE_CHART[atk_name][def_name] for def_name in TYPE_NAMES]
+    for atk_name in TYPE_NAMES
+]
+
+SPEED_OUTSPED_GUARANTEED_KO_PENALTY: float = 0.0
+SPEED_OUTSPED_LIKELY_KO_PENALTY: float = 0.25
+SPEED_TIE_PENALTY: float = 0.60

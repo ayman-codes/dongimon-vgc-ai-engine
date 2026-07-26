@@ -142,8 +142,8 @@ class TestGetTypeEffString:
         assert eff == 2.0
 
     def test_string_type_input(self):
-        """Also accepts string type names."""
-        eff = _get_type_eff_string("fire", [Type.GRASS])
+        """Accepts vgc2 Type enum members."""
+        eff = _get_type_eff_string(Type.FIRE, [Type.GRASS])
         assert eff == 2.0
 
 

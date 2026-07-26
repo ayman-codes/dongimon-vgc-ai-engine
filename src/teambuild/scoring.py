@@ -7,13 +7,14 @@ fitness evaluator to select optimal movesets.
 
 from typing import Any
 
-from vgc2.battle_engine import BattleRuleParam, calculate_damage
+from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.game_state import State
 from vgc2.battle_engine.modifiers import Category, Hazard, Stat, Status, Terrain, Type, Weather
 from vgc2.battle_engine.pokemon import BattlingPokemon, Pokemon
 from vgc2.battle_engine.team import BattlingTeam
 
 from src.shared.archetypes import create_generic_build_for_species
+from src.shared.cache import cached_calculate_damage as calculate_damage
 from src.shared.types import type_effectiveness, vgc2_type_to_name
 
 

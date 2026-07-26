@@ -7,11 +7,14 @@ teams from the final generation.
 
 from typing import Any
 
+from numpy.random import default_rng
+
 from src.teambuild.operators import (
     calculate_team_fitness,
     crossover,
     init_population,
     mutate_team,
+    seed_coverage_teams,
 )
 
 
@@ -41,7 +44,18 @@ def run_evolution(
         List of top K teams (each team is a list of 6 species indices),
         ranked by fitness descending. K = max(3, ceil(pop_size * elite_fraction)).
     """
-    population = init_population(pool_species, team_size, pop_size, viability_scores, rng)
+    rng_for_seeds = rng if hasattr(rng, 'integers') else default_rng()
+    coverage_seeds = seed_coverage_teams(
+        pool_species, viability_scores, team_size,
+        n_seeds=min(5, max(1, pop_size // 10)), rng=rng_for_seeds,
+    )
+    n_coverage = len(coverage_seeds)
+    n_random = pop_size - n_coverage
+    if n_random > 0:
+        random_pop = init_population(pool_species, team_size, n_random, viability_scores, rng)
+        population = coverage_seeds + random_pop
+    else:
+        population = coverage_seeds[:pop_size]
 
     for _gen in range(generations):
         fitnesses = [calculate_team_fitness(team, pool_species, viability_scores) for team in population]
@@ -62,6 +76,7 @@ def run_evolution(
                 pool_species,
                 viability_scores,
                 rng,
+                team_size=team_size,
             )
 
             child_a = mutate_team(child_a, len(pool_species), mutation_rate, viability_scores, pool_species, rng)

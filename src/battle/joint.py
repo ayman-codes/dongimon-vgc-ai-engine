@@ -8,7 +8,7 @@ scores plus cross-slot synergy components.
 from typing import Any
 
 from vgc2.battle_engine import BattleRuleParam
-from vgc2.battle_engine.modifiers import Category, Stat, Terrain, Type, Weather
+from vgc2.battle_engine.modifiers import Category, Stat, Status, Terrain, Type, Weather
 from vgc2.battle_engine.view import BattlingPokemonView, StateView
 
 from src.battle.move_scoring import (
@@ -22,11 +22,17 @@ from src.config.constants import (
     GOOD_PROTECT_THRESHOLD,
     HIGH_VALUE_PROTECT_THRESHOLD,
     LETHAL_SURVIVAL_PENALTY_MULT,
+    LOOKAHEAD_MY_ALIVE_MULT,
+    LOOKAHEAD_OPP_ALIVE_MULT,
     OFF_DEF_SUPPORT_BONUS,
     PROPORTIONAL_SURVIVAL_PENALTY_MULT,
+    SELF_KO_SURVIVAL_PENALTY_MULT,
     SETUP_MOVE_MAX_BP,
     SETUP_MOVE_MIN_SCORE,
     SETUP_SYNERGY_BONUS,
+    SPEED_OUTSPED_GUARANTEED_KO_PENALTY,
+    SPEED_OUTSPED_LIKELY_KO_PENALTY,
+    SPEED_TIE_PENALTY,
     STRONG_OFFENSIVE_THRESHOLD,
     TARGET_PRIORITY_BASE,
     TARGET_PRIORITY_KO_ALLY_MULT,
@@ -35,6 +41,54 @@ from src.config.constants import (
     TRICK_ROOM_SYNERGY_BONUS,
     WEATHER_SYNERGY_BONUS,
 )
+
+
+def _effective_speed(pkm: BattlingPokemonView, state: StateView) -> float:
+    """Compute effective speed accounting for boosts, paralysis, and trick room.
+
+    Trick Room inverts the speed order by negating the effective speed value
+    so that lower base values compare as higher after negation.
+
+    Args:
+        pkm: BattlingPokemonView to compute speed for.
+        state: Current battle state view.
+
+    Returns:
+        Effective speed value (negated under Trick Room).
+    """
+    base = pkm.constants.stats[Stat.SPEED]
+    stage = pkm.boosts[Stat.SPEED] if len(pkm.boosts) > Stat.SPEED else 0
+    stage = max(min(stage, 6), -6)
+    mult = (2 + stage) / 2.0 if stage >= 0 else 2.0 / (2 - stage)
+    actual = base * mult
+    status_val = int(pkm.status) if pkm.status is not None else 0
+    if status_val == Status.PARALYZED:
+        actual *= 0.5
+    if state.trickroom:
+        actual = -actual
+    return float(actual)
+
+
+def _opp_has_guaranteed_hit(opp: BattlingPokemonView) -> bool:
+    """Check if an opponent has any usable never-miss or 100%-accuracy damaging move.
+
+    Args:
+        opp: Opponent BattlingPokemonView.
+
+    Returns:
+        True if at least one usable move has accuracy None or >= 1.0.
+    """
+    for mv in opp.battling_moves or []:
+        if not mv or mv.pp <= 0 or mv.disabled:
+            continue
+        if not mv.constants or mv.constants.protect:
+            continue
+        if mv.constants.category == Category.OTHER:
+            continue
+        acc = mv.constants.accuracy if hasattr(mv.constants, "accuracy") else None
+        if acc is None or acc >= 1.0:
+            return True
+    return False
 
 
 def evaluate_joint_actions(
@@ -103,6 +157,54 @@ def evaluate_joint_actions(
         locked_moves,
     )
 
+    my_speed_a = _effective_speed(my_pkm_a, state) if my_pkm_a and my_pkm_a.hp > 0 else 0.0
+    my_speed_b = _effective_speed(my_pkm_b, state) if my_pkm_b and my_pkm_b.hp > 0 else 0.0
+    opp_speeds = [
+        _effective_speed(opp, state) if opp and opp.hp > 0 else 0.0
+        for opp in opp_active_list
+    ]
+
+    def _speed_penalty(my_pkm: BattlingPokemonView, my_speed: float, is_ko_threat: bool) -> float:
+        """Compute speed-based penalty multiplier for standard-priority moves.
+
+        Uses pre-computed KO threat flag to avoid redundant estimate_incoming_threat
+        calls. Only applies penalty if the Pokemon is KO-threatened and an opponent
+        outspeeds or ties.
+
+        Args:
+            my_pkm: Our active Pokemon.
+            my_speed: Pre-computed effective speed.
+            is_ko_threat: Whether estimate_incoming_threat flagged KO risk.
+
+        Returns:
+            Penalty multiplier in [0.0, 1.0], where 1.0 means no penalty.
+        """
+        if my_pkm is None or my_pkm.hp <= 0:
+            return 1.0
+        if not is_ko_threat:
+            return 1.0
+        guaranteed_ko_count = 0
+        worst = 1.0
+        active_opps = [o for o in opp_active_list if o and o.hp > 0]
+        for slot_idx, opp in enumerate(opp_active_list):
+            if opp is None or opp.hp <= 0:
+                continue
+            if my_speed > opp_speeds[slot_idx]:
+                continue
+            if _opp_has_guaranteed_hit(opp):
+                guaranteed_ko_count += 1
+                worst = min(worst, SPEED_OUTSPED_GUARANTEED_KO_PENALTY)
+            elif my_speed < opp_speeds[slot_idx]:
+                worst = min(worst, SPEED_OUTSPED_LIKELY_KO_PENALTY)
+            elif my_speed == opp_speeds[slot_idx]:
+                worst = min(worst, SPEED_TIE_PENALTY)
+        if guaranteed_ko_count >= 2 and len(active_opps) >= 2:
+            worst = 0.0
+        return worst
+
+    penalty_a = _speed_penalty(my_pkm_a, my_speed_a, pkm_a_ko_by_threat)
+    penalty_b = _speed_penalty(my_pkm_b, my_speed_b, pkm_b_ko_by_threat)
+
     raw_a: list[float] = []
     raw_b: list[float] = []
     raw_s1: list[float] = []
@@ -142,6 +244,7 @@ def evaluate_joint_actions(
                 biggest_threat_pkm,
                 biggest_threat_slot,
                 max_score,
+                self_ko=is_ko_a,
             )
             sv_b = _survival_impact_b(
                 my_pkm_b,
@@ -159,6 +262,7 @@ def evaluate_joint_actions(
                 state,
                 params,
                 locked_moves,
+                self_ko=is_ko_b,
             )
 
             ff = _focus_fire_wrapper(
@@ -246,10 +350,18 @@ def evaluate_joint_actions(
             ):
                 opp_alive_after -= 1
 
-            bp_score = 2.0 * my_alive_after - 2.5 * opp_alive_after
+            bp_score = LOOKAHEAD_MY_ALIVE_MULT * my_alive_after - LOOKAHEAD_OPP_ALIVE_MULT * opp_alive_after
 
-            raw_a.append(score_a)
-            raw_b.append(score_b)
+            adj_score_a = score_a
+            if is_move_a and move_a_const and move_a_const.priority <= 0 and move_a_const.protect is False:
+                adj_score_a = score_a * penalty_a
+
+            adj_score_b = score_b
+            if is_move_b and move_b_const and move_b_const.priority <= 0 and move_b_const.protect is False:
+                adj_score_b = score_b * penalty_b
+
+            raw_a.append(adj_score_a)
+            raw_b.append(adj_score_b)
             raw_s1.append(sv_a)
             raw_s2.append(sv_b)
             raw_ff.append(ff)
@@ -266,9 +378,9 @@ def evaluate_joint_actions(
         "s": max(abs(v) for v in raw_s1 + raw_s2) if raw_s1 or raw_s2 else 1.0,
         "ff": max(raw_ff) if raw_ff else 1.0,
         "tp": max(raw_tp) if raw_tp else 1.0,
-        "od": max(raw_od) if raw_od else 1.0,
-        "su": max(raw_su) if raw_su else 1.0,
-        "ev": max(raw_ev) if raw_ev else 1.0,
+        "od": max(max(raw_od), OFF_DEF_SUPPORT_BONUS) if raw_od else 1.0,
+        "su": max(max(raw_su), SETUP_SYNERGY_BONUS) if raw_su else 1.0,
+        "ev": max(max(raw_ev), TRICK_ROOM_SYNERGY_BONUS) if raw_ev else 1.0,
         "bp": max(abs(v) for v in raw_bp) if raw_bp else 1.0,
     }
 
@@ -319,12 +431,14 @@ def _survival_impact(
     biggest_threat_pkm: Any,
     biggest_threat_slot: int,
     max_score: float,
+    self_ko: bool = False,
 ) -> float:
     """Compute survival impact score for one Pokemon.
 
     Positive score means survival is likely. Negative penalty
     applies if the Pokemon would faint and the ally is not
-    eliminating the threat.
+    eliminating the threat. Self-sacrifice (scoring a KO while
+    fainting) receives a drastically reduced penalty.
 
     Args:
         pkm: The Pokemon being evaluated.
@@ -337,6 +451,7 @@ def _survival_impact(
         biggest_threat_pkm: Biggest threat Pokemon view.
         biggest_threat_slot: Biggest threat slot index.
         max_score: Maximum score constant (1000.0).
+        self_ko: Whether this Pokemon itself is scoring a KO.
 
     Returns:
         Negative float penalty (or zero if safe).
@@ -354,6 +469,8 @@ def _survival_impact(
             and ally_target_slot == biggest_threat_slot
         )
         if not ally_ko_biggest:
+            if self_ko:
+                return -(max_score * SELF_KO_SURVIVAL_PENALTY_MULT)
             return -(max_score * LETHAL_SURVIVAL_PENALTY_MULT)
     elif dmg_taken > 0:
         pkm_max_hp = pkm.constants.stats[Stat.MAX_HP] if pkm.constants else 1.0
@@ -381,10 +498,13 @@ def _survival_impact_b(
     state: StateView,
     params: BattleRuleParam,
     locked_moves: dict[int, str] | None = None,
+    self_ko: bool = False,
 ) -> float:
     """Compute survival impact for Pokemon B, adjusted for A's KO.
 
     Removes opponent Pokemon that A KOs from the threat calculation.
+    Self-sacrifice (scoring a KO while fainting) receives a
+    drastically reduced penalty.
 
     Args:
         pkm_b: Pokemon B view.
@@ -401,6 +521,8 @@ def _survival_impact_b(
         max_score: Maximum score constant.
         state: Current battle state view.
         params: Battle rule parameters.
+        locked_moves: Dict mapping opponent slot to their Choice-locked move name.
+        self_ko: Whether Pokemon B itself is scoring a KO.
 
     Returns:
         Negative float penalty (or zero if safe).
@@ -431,6 +553,8 @@ def _survival_impact_b(
             and cmd_a_target == biggest_threat_slot
         )
         if not a_ko_threat:
+            if self_ko:
+                return -(max_score * SELF_KO_SURVIVAL_PENALTY_MULT)
             return -(max_score * LETHAL_SURVIVAL_PENALTY_MULT)
     elif dmg_taken > 0:
         pkm_max_hp = pkm_b.constants.stats[Stat.MAX_HP] if pkm_b.constants else 1.0

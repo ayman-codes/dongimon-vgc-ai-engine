@@ -6,7 +6,7 @@ evaluate their likely impact against our team.
 
 from typing import Any
 
-from vgc2.battle_engine import BattleRuleParam, calculate_damage
+from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.game_state import State
 from vgc2.battle_engine.modifiers import Category, Stat, Status, Terrain, Type, Weather
 from vgc2.battle_engine.pokemon import BattlingPokemon, Pokemon, PokemonSpecies
@@ -14,6 +14,7 @@ from vgc2.battle_engine.team import BattlingTeam, Team
 from vgc2.battle_engine.view import PokemonView
 
 from src.shared.archetypes import create_archetype_builds
+from src.shared.cache import cached_calculate_damage as calculate_damage
 
 
 def predict_moveset(
