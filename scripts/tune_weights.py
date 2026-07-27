@@ -33,12 +33,12 @@ from vgc2.util.generator import gen_team
 from src.battle.policy import DongimonBattlePolicy
 from src.tuning.elo_rating import run_dongimon_elo_epoch
 
-N_TRIALS = 500
+N_TRIALS = 1500
 N_BATTLES = 15
 N_EPOCHS = 10
 ELO_K = 32.0
 INITIAL_ELO = 1200.0
-STUDY_NAME = "elo_weight_tuning_v4"
+STUDY_NAME = "elo_weight_tuning_v5_fixed_scale"
 SAVE_INTERVAL = 30
 
 _DONGIMON = "Dongimon"
@@ -146,23 +146,21 @@ def objective(trial: optuna.Trial) -> float:
         Dongimon's ELO rating after all epochs. Higher = better weights.
     """
     weights = {
-        "w_base_score_a": trial.suggest_float("w_base_score_a", 0.10, 0.30),
-        "w_base_score_b": trial.suggest_float("w_base_score_b", 0.15, 0.35),
-        "w_focus_fire": trial.suggest_float("w_focus_fire", 0.05, 0.25),
-        "w_target_priority": trial.suggest_float("w_target_priority", 0.05, 0.20),
-        "w_survival_impact": trial.suggest_float("w_survival_impact", 0.05, 0.20),
-        "w_off_def_support": trial.suggest_float("w_off_def_support", 0.01, 0.10),
-        "w_setup_synergy": trial.suggest_float("w_setup_synergy", 0.01, 0.10),
-        "w_env_synergy": trial.suggest_float("w_env_synergy", 0.01, 0.08),
+        "w_base_score": trial.suggest_float("w_base_score", 0.0, 1.0),
+        "w_focus_fire": trial.suggest_float("w_focus_fire", 0.0, 1.0),
+        "w_target_priority": trial.suggest_float("w_target_priority", 0.0, 1.0),
+        "w_survival_impact": trial.suggest_float("w_survival_impact", 0.0, 1.0),
+        "w_off_def_support": trial.suggest_float("w_off_def_support", 0.0, 1.0),
+        "w_setup_synergy": trial.suggest_float("w_setup_synergy", 0.0, 1.0),
+        "w_env_synergy": trial.suggest_float("w_env_synergy", 0.0, 1.0),
         "w_status_sleep": trial.suggest_float("w_status_sleep", 5.0, 80.0),
         "w_status_burn": trial.suggest_float("w_status_burn", 5.0, 80.0),
         "w_status_para": trial.suggest_float("w_status_para", 5.0, 80.0),
         "w_status_poison": trial.suggest_float("w_status_poison", 5.0, 80.0),
         "w_status_toxic": trial.suggest_float("w_status_toxic", 5.0, 80.0),
-        "w_lookahead": trial.suggest_float("w_lookahead", 0.05, 0.20),
     }
 
-    if weights["w_base_score_a"] + weights["w_base_score_b"] < 0.30:
+    if weights["w_base_score"] < 0.05:
         return float("-inf")
 
     rng = default_rng(trial.number)

@@ -32,11 +32,13 @@ from sklearn.preprocessing import StandardScaler
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.agent.selection import BasicSelectionPolicy
 from vgc2.battle_engine import BattleRuleParam
+from xgboost import XGBRegressor
 
 from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import (
     compute_pairwise_features,
     compute_subteam_features,
+    discover_latest_jsonl,
     generate_stratified_teams,
     profile_teams,
     run_ablation_tracks,
@@ -109,6 +111,14 @@ def main() -> None:
         "--output-dir", type=Path, default=Path("data/experiments/matchup_predictor"),
         help="Output directory for data, model, and metrics",
     )
+    parser.add_argument(
+        "--data", type=str, default="generate", choices=["generate", "load"],
+        help="generate: run full experiment. load: skip to feature selection from saved JSONL.",
+    )
+    parser.add_argument(
+        "--data-path", type=Path, default=None,
+        help="Explicit JSONL path for --data=load (auto-discovers latest if omitted).",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir
@@ -129,7 +139,8 @@ def main() -> None:
 
     print("=" * 60)
     print("Matchup Predictor Experiment")
-    print(f"  seed={args.seed}, n_pairs={args.n_pairs}, n_battles={args.n_battles}")
+    mode_label = "GENERATE" if args.data == "generate" else "LOAD"
+    print(f"  seed={args.seed}, mode={mode_label}, n_pairs={args.n_pairs}, n_battles={args.n_battles}")
     print(f"  side-A policy: {side_a_name}")
     print("  opponent: Greedy (fixed)")
     print(f"  output={output_dir.resolve()}")
@@ -137,85 +148,108 @@ def main() -> None:
 
     start = time.perf_counter()
 
-    print("Generating stratified teams...")
-    all_teams, tier_labels = generate_stratified_teams(
-        n_teams=args.n_pairs * 2, seed=args.seed
-    )
-    teams_a = all_teams[: args.n_pairs]
-    teams_b = all_teams[args.n_pairs : args.n_pairs * 2]
-
-    print(f"  {len(all_teams)} teams, {args.n_pairs} pairs")
-    tier_counts: dict[str, int] = {}
-    for t in tier_labels:
-        tier_counts[t] = tier_counts.get(t, 0) + 1
-    print(f"  Tier distribution: {tier_counts}")
-
-    print("Profiling teams...")
-    profile = profile_teams(teams_a + teams_b)
-    profile_path = meta_dir / f"mp_profile_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
-    with open(profile_path, "w") as f:
-        json.dump(profile, f, indent=2)
-
-    total_battles = args.n_pairs * args.n_battles
-    print(f"Running {args.n_pairs} pairs x {args.n_battles} battles ({total_battles} total)...")
-
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     win_rates: list[float] = []
     pairwise_feats: list[dict[str, float]] = []
-    raw_rows: list[dict[str, Any]] = []
+    profile: dict[str, Any] = {}
+    tier_counts_final: dict[str, int] = {}
+    jsonl_path: Path | None = None
 
-    flush_interval = 100
-    jsonl_path = output_dir / f"mp_data_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
-
-    for pair_idx in range(args.n_pairs):
-        team_a = teams_a[pair_idx]
-        team_b = teams_b[pair_idx]
-        pair_seed = args.seed + pair_idx * 100
-
-        wins_a, _, idx_a, idx_b = run_pair_battles(
-            team_a=team_a,
-            team_b=team_b,
-            bp_side_a=side_a_policy,
-            bp_side_b=opponent_policy,
-            n_battles=args.n_battles,
-            pair_seed=pair_seed,
-            params=params,
-            sel=sel,
+    if args.data == "generate":
+        print("Generating stratified teams...")
+        all_teams, tier_labels = generate_stratified_teams(
+            n_teams=args.n_pairs * 2, seed=args.seed
         )
+        teams_a = all_teams[: args.n_pairs]
+        teams_b = all_teams[args.n_pairs : args.n_pairs * 2]
 
-        win_rate = wins_a / args.n_battles
-        win_rates.append(win_rate)
+        print(f"  {len(all_teams)} teams, {args.n_pairs} pairs")
+        tier_counts: dict[str, int] = {}
+        for t in tier_labels:
+            tier_counts[t] = tier_counts.get(t, 0) + 1
+        print(f"  Tier distribution: {tier_counts}")
 
-        subteam_a_members = [team_a.members[i] for i in idx_a] if idx_a else list(team_a.members[:4])
-        subteam_b_members = [team_b.members[i] for i in idx_b] if idx_b else list(team_b.members[:4])
+        print("Profiling teams...")
+        profile = profile_teams(teams_a + teams_b)
+        profile_path = meta_dir / f"mp_profile_{timestamp}.json"
+        with open(profile_path, "w") as f:
+            json.dump(profile, f, indent=2)
 
-        sub_feats_a = compute_subteam_features(subteam_a_members)
-        sub_feats_b = compute_subteam_features(subteam_b_members)
-        pair_feats = compute_pairwise_features(subteam_a_members, subteam_b_members)
-        pairwise_feats.append(pair_feats)
+        total_battles = args.n_pairs * args.n_battles
+        print(f"Running {args.n_pairs} pairs x {args.n_battles} battles ({total_battles} total)...")
 
-        bst_delta = _compute_bst_delta_from_feats(sub_feats_a, sub_feats_b)
+        raw_rows: list[dict[str, Any]] = []
+        flush_interval = 100
+        jsonl_path = output_dir / f"mp_data_{timestamp}.jsonl"
 
-        raw_rows.append({
-            "pair_id": pair_idx,
-            "seed": pair_seed,
-            "wins_a": wins_a,
-            "n_battles": args.n_battles,
-            "win_rate_a": win_rate,
-            "selected_indices_a": idx_a,
-            "selected_indices_b": idx_b,
-            "bst_delta": bst_delta,
-            "features": pair_feats,
-        })
+        for pair_idx in range(args.n_pairs):
+            team_a = teams_a[pair_idx]
+            team_b = teams_b[pair_idx]
+            pair_seed = args.seed + pair_idx * 100
 
-        if (pair_idx + 1) % flush_interval == 0:
-            _save_jsonl(raw_rows, jsonl_path)
-            elapsed = time.perf_counter() - start
-            rate = (pair_idx + 1) / elapsed if elapsed > 0 else 0
-            print(f"  {pair_idx + 1}/{args.n_pairs} pairs ({rate:.1f} pairs/s, {elapsed:.0f}s)")
+            wins_a, _, idx_a, idx_b = run_pair_battles(
+                team_a=team_a,
+                team_b=team_b,
+                bp_side_a=side_a_policy,
+                bp_side_b=opponent_policy,
+                n_battles=args.n_battles,
+                pair_seed=pair_seed,
+                params=params,
+                sel=sel,
+            )
 
-    _save_jsonl(raw_rows, jsonl_path)
-    elapsed = time.perf_counter() - start
-    print(f"\nData complete: {args.n_pairs} pairs in {elapsed:.0f}s")
+            win_rate = wins_a / args.n_battles
+            win_rates.append(win_rate)
+
+            subteam_a_members = [team_a.members[i] for i in idx_a] if idx_a else list(team_a.members[:4])
+            subteam_b_members = [team_b.members[i] for i in idx_b] if idx_b else list(team_b.members[:4])
+
+            sub_feats_a = compute_subteam_features(subteam_a_members)
+            sub_feats_b = compute_subteam_features(subteam_b_members)
+            pair_feats = compute_pairwise_features(subteam_a_members, subteam_b_members)
+            pairwise_feats.append(pair_feats)
+
+            bst_delta = _compute_bst_delta_from_feats(sub_feats_a, sub_feats_b)
+
+            raw_rows.append({
+                "pair_id": pair_idx,
+                "seed": pair_seed,
+                "wins_a": wins_a,
+                "n_battles": args.n_battles,
+                "win_rate_a": win_rate,
+                "selected_indices_a": idx_a,
+                "selected_indices_b": idx_b,
+                "bst_delta": bst_delta,
+                "features": pair_feats,
+            })
+
+            if (pair_idx + 1) % flush_interval == 0:
+                _save_jsonl(raw_rows, jsonl_path)
+                elapsed = time.perf_counter() - start
+                rate = (pair_idx + 1) / elapsed if elapsed > 0 else 0
+                print(f"  {pair_idx + 1}/{args.n_pairs} pairs ({rate:.1f} pairs/s, {elapsed:.0f}s)")
+
+        _save_jsonl(raw_rows, jsonl_path)
+        elapsed = time.perf_counter() - start
+        print(f"\nData complete: {args.n_pairs} pairs in {elapsed:.0f}s")
+        tier_counts_final = tier_counts
+    else:
+        data_path = args.data_path or discover_latest_jsonl(output_dir, "mp_data")
+        if data_path is None:
+            print("ERROR: No mp_data_*.jsonl found and --data-path not provided.")
+            sys.exit(1)
+        print(f"[LOAD] Reading data from {data_path}")
+        with open(data_path) as f:
+            for line in f:
+                row = json.loads(line)
+                win_rates.append(float(row["win_rate_a"]))
+                pairwise_feats.append(row["features"])
+        print(f"[LOAD] Loaded {len(win_rates)} pairs")
+        tier_counts_final = {"loaded": len(win_rates)}
+        elapsed = time.perf_counter() - start
+        profile = {}
+        jsonl_path = data_path
+
     print(f"  Mean win rate (side A, {side_a_name}): {np.mean(win_rates):.4f}")
 
     feature_names = list(pairwise_feats[0].keys())
@@ -335,14 +369,14 @@ def main() -> None:
     if kill_switch_triggered:
         print(f"  NOT VIABLE: {kill_reason}")
     else:
-        print(f"  VIABLE: Track C AUROC={full_logreg_auc:.4f}, R\u00b2={full_ridge_r2:.4f}")
+        print(f"  VIABLE: Track C AUROC={full_logreg_auc:.4f}, R2={full_ridge_r2:.4f}")
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    elapsed = time.perf_counter() - start
 
     metrics = {
         "timestamp": timestamp,
         "seed": args.seed,
-        "n_pairs": args.n_pairs,
+        "n_pairs": len(win_rates),
         "n_battles": args.n_battles,
         "side_a_policy": side_a_name,
         "duration_seconds": round(elapsed, 1),
@@ -367,11 +401,11 @@ def main() -> None:
     meta = {
         "timestamp": timestamp,
         "seed": args.seed,
-        "n_pairs": args.n_pairs,
+        "n_pairs": len(win_rates),
         "n_battles": args.n_battles,
         "side_a_policy": side_a_name,
         "data_profile": profile,
-        "tier_counts": tier_counts,
+        "tier_counts": tier_counts_final,
         "feature_names": feature_names,
         "bst_feature_indices": bst_indices,
     }
@@ -384,25 +418,39 @@ def main() -> None:
     print(f"  Raw data saved to {jsonl_path}")
 
     if not kill_switch_triggered:
-        print("Saving best model...")
+        print("Saving all models...")
         scaler = StandardScaler()
         x_scaled = scaler.fit_transform(x_data)
-        ridge_model = Ridge(alpha=1.0, random_state=args.seed)
-        ridge_model.fit(x_scaled, y_data)
 
-        model_path = output_dir / f"mp_model_{timestamp}.pkl"
-        with open(model_path, "wb") as bf:
-            pickle.dump({
-                "model": ridge_model,
-                "scaler": scaler,
-                "feature_names": feature_names,
-                "config": {
-                    "side_a_policy": side_a_name,
-                    "n_battles": args.n_battles,
-                    "seed": args.seed,
-                },
-            }, bf)
-        print(f"  Model saved to {model_path}")
+        def _save_model(model_obj: Any, name: str) -> None:
+            path = output_dir / f"MP_{name}.pkl"
+            with open(path, "wb") as bf:
+                pickle.dump({
+                    "model": model_obj,
+                    "scaler": scaler,
+                    "feature_names": feature_names,
+                    "config": {
+                        "side_a_policy": side_a_name,
+                        "n_battles": args.n_battles,
+                        "seed": args.seed,
+                    },
+                }, bf)
+            print(f"  Saved {path}")
+
+        ridge_save = Ridge(alpha=1.0, random_state=args.seed)
+        ridge_save.fit(x_scaled, y_data)
+        _save_model(ridge_save, "Ridge")
+
+        logreg_save = LogisticRegression(max_iter=2000, random_state=args.seed)
+        logreg_save.fit(x_scaled, y_binary)
+        _save_model(logreg_save, "LogReg")
+
+        xgb_save = XGBRegressor(
+            n_estimators=100, max_depth=4, learning_rate=0.1,
+            random_state=args.seed, verbosity=0,
+        )
+        xgb_save.fit(x_scaled, y_data)
+        _save_model(xgb_save, "XGBoost")
 
     print("=" * 60)
     print(f"Done in {elapsed:.0f}s. Viable: {not kill_switch_triggered}")

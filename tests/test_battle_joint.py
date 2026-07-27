@@ -10,7 +10,7 @@ from src.battle.joint import (
     _off_def_support,
     _setup_synergy,
     _survival_impact,
-    _target_priority,
+    _target_priority_cached,
 )
 
 
@@ -134,25 +134,23 @@ class TestSurvivalImpact:
 
 
 class TestTargetPriority:
-    """Tests for _target_priority."""
+    """Tests for _target_priority_cached."""
 
     def test_no_threat_no_bonus(self):
         """No biggest threat means zero bonus."""
-        state = _make_mock_state()
-        bonus = _target_priority(
+        bonus = _target_priority_cached(
             False, False, None, None, -1, -1, True, True,
-            None, -1, [], state, MagicMock(),
+            None, -1, False,
         )
         assert bonus == 0.0
 
     def test_koing_threat_gives_bonus(self):
         """KOing the biggest threat gives positive bonus."""
-        state = _make_mock_state()
         threat = _make_mock_pkm_view(hp=100)
         move = _make_mock_move_const(bp=80)
-        bonus = _target_priority(
+        bonus = _target_priority_cached(
             True, False, move, None, 0, -1, True, False,
-            threat, 0, [], state, MagicMock(),
+            threat, 0, False,
         )
         assert bonus == 450.0
 

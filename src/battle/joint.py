@@ -17,15 +17,19 @@ from src.battle.move_scoring import (
     identify_biggest_threat,
 )
 from src.config.constants import (
-    BOARD_WEIGHT,
     GOOD_OFFENSIVE_FOLLOWUP_THRESHOLD,
     GOOD_PROTECT_THRESHOLD,
     HIGH_VALUE_PROTECT_THRESHOLD,
     LETHAL_SURVIVAL_PENALTY_MULT,
-    LOOKAHEAD_MY_ALIVE_MULT,
-    LOOKAHEAD_OPP_ALIVE_MULT,
     OFF_DEF_SUPPORT_BONUS,
     PROPORTIONAL_SURVIVAL_PENALTY_MULT,
+    SCALE_BASE_SCORE,
+    SCALE_ENV,
+    SCALE_FOCUS_FIRE,
+    SCALE_OFF_DEF,
+    SCALE_SETUP,
+    SCALE_SURVIVAL,
+    SCALE_TARGET_PRIORITY,
     SELF_KO_SURVIVAL_PENALTY_MULT,
     SETUP_MOVE_MAX_BP,
     SETUP_MOVE_MIN_SCORE,
@@ -103,14 +107,14 @@ def evaluate_joint_actions(
     weights: dict[str, float],
     max_score: float,
     locked_moves: dict[int, str] | None = None,
-    lookahead_weight: float = BOARD_WEIGHT,
+    lookahead_weight: float = 0.0,
 ) -> tuple[list[Any], dict[str, Any], dict[str, Any], float]:
     """Evaluate all joint action pairs and select the best.
 
     For each combination of actions (one per active Pokemon), computes
     individual base scores, survival impact, focus fire, target priority,
     off-def support, setup synergy, and environmental synergy bonuses.
-    The best-scoring pair is returned.
+    Uses fixed-scale normalization by theoretical max constants.
 
     Args:
         actions_slot_a: List of (command, score, is_ko) tuples for Pokemon A.
@@ -124,12 +128,12 @@ def evaluate_joint_actions(
         weights: Dictionary of synergy weight values.
         max_score: Maximum individual score constant.
         locked_moves: Dict mapping opponent slot to their Choice-locked move name.
+        lookahead_weight: Unused, kept for API compatibility.
 
     Returns:
         Tuple of (final_commands, log_a, log_b, joint_score).
     """
     default_cmd = (0, 0)
-    (default_cmd, -float("inf"), False)
 
     best_joint = -float("inf")
     chosen_pair = (default_cmd, default_cmd)
@@ -157,6 +161,26 @@ def evaluate_joint_actions(
         locked_moves,
     )
 
+    threat_b_by_excluded: dict[int, float] = {-1: threat_b_undefended}
+    for slot_idx in range(len(opp_active_list)):
+        effective = [
+            opp for i, opp in enumerate(opp_active_list) if i != slot_idx and opp and opp.hp > 0
+        ]
+        if effective:
+            t, _ = estimate_incoming_threat(my_pkm_b, effective, state, params, locked_moves)
+        else:
+            t = 0.0
+        threat_b_by_excluded[slot_idx] = t
+
+    threat_kos_ally = False
+    if biggest_threat_pkm and biggest_threat_pkm.hp > 0:
+        for my_pkm in my_active_list:
+            if my_pkm and my_pkm.hp > 0:
+                _, ko_my = estimate_incoming_threat(my_pkm, [biggest_threat_pkm], state, params, locked_moves)
+                if ko_my:
+                    threat_kos_ally = True
+                    break
+
     my_speed_a = _effective_speed(my_pkm_a, state) if my_pkm_a and my_pkm_a.hp > 0 else 0.0
     my_speed_b = _effective_speed(my_pkm_b, state) if my_pkm_b and my_pkm_b.hp > 0 else 0.0
     opp_speeds = [
@@ -166,10 +190,6 @@ def evaluate_joint_actions(
 
     def _speed_penalty(my_pkm: BattlingPokemonView, my_speed: float, is_ko_threat: bool) -> float:
         """Compute speed-based penalty multiplier for standard-priority moves.
-
-        Uses pre-computed KO threat flag to avoid redundant estimate_incoming_threat
-        calls. Only applies penalty if the Pokemon is KO-threatened and an opponent
-        outspeeds or ties.
 
         Args:
             my_pkm: Our active Pokemon.
@@ -183,23 +203,18 @@ def evaluate_joint_actions(
             return 1.0
         if not is_ko_threat:
             return 1.0
-        guaranteed_ko_count = 0
         worst = 1.0
-        active_opps = [o for o in opp_active_list if o and o.hp > 0]
         for slot_idx, opp in enumerate(opp_active_list):
             if opp is None or opp.hp <= 0:
                 continue
             if my_speed > opp_speeds[slot_idx]:
                 continue
             if _opp_has_guaranteed_hit(opp):
-                guaranteed_ko_count += 1
                 worst = min(worst, SPEED_OUTSPED_GUARANTEED_KO_PENALTY)
             elif my_speed < opp_speeds[slot_idx]:
                 worst = min(worst, SPEED_OUTSPED_LIKELY_KO_PENALTY)
             elif my_speed == opp_speeds[slot_idx]:
                 worst = min(worst, SPEED_TIE_PENALTY)
-        if guaranteed_ko_count >= 2 and len(active_opps) >= 2:
-            worst = 0.0
         return worst
 
     penalty_a = _speed_penalty(my_pkm_a, my_speed_a, pkm_a_ko_by_threat)
@@ -214,7 +229,6 @@ def evaluate_joint_actions(
     raw_od: list[float] = []
     raw_su: list[float] = []
     raw_ev: list[float] = []
-    raw_bp: list[float] = []
     pair_info: list[tuple[Any, ...]] = []
 
     for cmd_a_info in actions_slot_a:
@@ -246,22 +260,17 @@ def evaluate_joint_actions(
                 max_score,
                 self_ko=is_ko_a,
             )
-            sv_b = _survival_impact_b(
+            sv_b = _survival_impact_b_cached(
                 my_pkm_b,
-                opp_active_list,
                 is_ko_a,
                 move_a_const,
                 cmd_a_target,
                 is_move_b,
                 move_b_const,
-                threat_b_undefended,
-                pkm_b_ko_by_threat,
+                threat_b_by_excluded,
                 biggest_threat_pkm,
                 biggest_threat_slot,
                 max_score,
-                state,
-                params,
-                locked_moves,
                 self_ko=is_ko_b,
             )
 
@@ -282,7 +291,7 @@ def evaluate_joint_actions(
                 biggest_threat_pkm,
             )
 
-            tp = _target_priority(
+            tp = _target_priority_cached(
                 is_ko_a,
                 is_ko_b,
                 move_a_const,
@@ -293,10 +302,7 @@ def evaluate_joint_actions(
                 is_move_b,
                 biggest_threat_pkm,
                 biggest_threat_slot,
-                my_active_list,
-                state,
-                params,
-                locked_moves,
+                threat_kos_ally,
             )
 
             od = _off_def_support(
@@ -331,27 +337,6 @@ def evaluate_joint_actions(
                 state,
             )
 
-            my_alive_after = sum(1 for p in my_active_list if p and p.hp > 0)
-            opp_alive_after = sum(1 for p in opp_active_list if p and p.hp > 0)
-            if (
-                is_ko_a
-                and cmd_a_target >= 0
-                and cmd_a_target < len(opp_active_list)
-                and opp_active_list[cmd_a_target]
-                and opp_active_list[cmd_a_target].hp > 0
-            ):
-                opp_alive_after -= 1
-            if (
-                is_ko_b
-                and cmd_b_target >= 0
-                and cmd_b_target < len(opp_active_list)
-                and opp_active_list[cmd_b_target]
-                and opp_active_list[cmd_b_target].hp > 0
-            ):
-                opp_alive_after -= 1
-
-            bp_score = LOOKAHEAD_MY_ALIVE_MULT * my_alive_after - LOOKAHEAD_OPP_ALIVE_MULT * opp_alive_after
-
             adj_score_a = score_a
             if is_move_a and move_a_const and move_a_const.priority <= 0 and move_a_const.protect is False:
                 adj_score_a = score_a * penalty_a
@@ -369,46 +354,27 @@ def evaluate_joint_actions(
             raw_od.append(od)
             raw_su.append(su)
             raw_ev.append(ev)
-            raw_bp.append(bp_score)
             pair_info.append((cmd_a, cmd_b, is_ko_a, is_ko_b))
 
-    comp_max = {
-        "a": max(raw_a) if raw_a else 1.0,
-        "b": max(raw_b) if raw_b else 1.0,
-        "s": max(abs(v) for v in raw_s1 + raw_s2) if raw_s1 or raw_s2 else 1.0,
-        "ff": max(raw_ff) if raw_ff else 1.0,
-        "tp": max(raw_tp) if raw_tp else 1.0,
-        "od": max(max(raw_od), OFF_DEF_SUPPORT_BONUS) if raw_od else 1.0,
-        "su": max(max(raw_su), SETUP_SYNERGY_BONUS) if raw_su else 1.0,
-        "ev": max(max(raw_ev), TRICK_ROOM_SYNERGY_BONUS) if raw_ev else 1.0,
-        "bp": max(abs(v) for v in raw_bp) if raw_bp else 1.0,
-    }
-
-    def _div(v: float, m: float) -> float:
-        return v / m if m > 0 else 0.0
-
     for idx, (cmd_a, cmd_b, is_ko_a, is_ko_b) in enumerate(pair_info):
-        n_a = _div(raw_a[idx], comp_max["a"])
-        n_b = _div(raw_b[idx], comp_max["b"])
-        n_s1 = _div(raw_s1[idx], comp_max["s"])
-        n_s2 = _div(raw_s2[idx], comp_max["s"])
-        n_ff = _div(raw_ff[idx], comp_max["ff"])
-        n_tp = _div(raw_tp[idx], comp_max["tp"])
-        n_od = _div(raw_od[idx], comp_max["od"])
-        n_su = _div(raw_su[idx], comp_max["su"])
-        n_ev = _div(raw_ev[idx], comp_max["ev"])
-        n_bp = _div(raw_bp[idx], comp_max["bp"])
+        n_a = raw_a[idx] / SCALE_BASE_SCORE
+        n_b = raw_b[idx] / SCALE_BASE_SCORE
+        n_s1 = raw_s1[idx] / SCALE_SURVIVAL
+        n_s2 = raw_s2[idx] / SCALE_SURVIVAL
+        n_ff = raw_ff[idx] / SCALE_FOCUS_FIRE
+        n_tp = raw_tp[idx] / SCALE_TARGET_PRIORITY
+        n_od = raw_od[idx] / SCALE_OFF_DEF
+        n_su = raw_su[idx] / SCALE_SETUP
+        n_ev = raw_ev[idx] / SCALE_ENV
 
         joint = (
-            n_a * weights.get("w_base_score_a", 0.05)
-            + n_b * weights.get("w_base_score_b", 0.15)
+            (n_a + n_b) * weights.get("w_base_score", 0.25)
             + (n_s1 + n_s2) * weights.get("w_survival_impact", 0.13)
             + n_ff * weights.get("w_focus_fire", 0.27)
             + n_tp * weights.get("w_target_priority", 0.18)
             + n_od * weights.get("w_off_def_support", 0.02)
             + n_su * weights.get("w_setup_synergy", 0.18)
             + n_ev * weights.get("w_env_synergy", 0.02)
-            + n_bp * lookahead_weight
         )
 
         if joint > best_joint:
@@ -482,63 +448,44 @@ def _survival_impact(
     return 0.0
 
 
-def _survival_impact_b(
+def _survival_impact_b_cached(
     pkm_b: BattlingPokemonView,
-    opp_active_list: list[Any],
     is_ko_a: bool,
     move_a_const: Any,
     cmd_a_target: int,
     is_move_b: bool,
     move_b_const: Any,
-    threat_b_undefended: float,
-    pkm_b_ko_by_threat: bool,
+    threat_b_by_excluded: dict[int, float],
     biggest_threat_pkm: Any,
     biggest_threat_slot: int,
     max_score: float,
-    state: StateView,
-    params: BattleRuleParam,
-    locked_moves: dict[int, str] | None = None,
     self_ko: bool = False,
 ) -> float:
-    """Compute survival impact for Pokemon B, adjusted for A's KO.
+    """Compute survival impact for Pokemon B using pre-computed threat values.
 
-    Removes opponent Pokemon that A KOs from the threat calculation.
-    Self-sacrifice (scoring a KO while fainting) receives a
-    drastically reduced penalty.
+    Uses cached threat values keyed by excluded opponent slot to avoid
+    redundant estimate_incoming_threat calls inside the pair loop.
 
     Args:
         pkm_b: Pokemon B view.
-        opp_active_list: Opponent active Pokemon views.
         is_ko_a: Whether Pokemon A's move KOs.
         move_a_const: Pokemon A's move constants.
         cmd_a_target: Pokemon A's target slot.
         is_move_b: Whether Pokemon B's action is a move.
         move_b_const: Pokemon B's move constants.
-        threat_b_undefended: Base threat to Pokemon B.
-        pkm_b_ko_by_threat: Whether Pokemon B is threatened by KO.
+        threat_b_by_excluded: Pre-computed threat values keyed by excluded slot.
         biggest_threat_pkm: Biggest threat opponent view.
         biggest_threat_slot: Biggest threat slot index.
         max_score: Maximum score constant.
-        state: Current battle state view.
-        params: Battle rule parameters.
-        locked_moves: Dict mapping opponent slot to their Choice-locked move name.
         self_ko: Whether Pokemon B itself is scoring a KO.
 
     Returns:
         Negative float penalty (or zero if safe).
     """
-    effective_opponents = []
     if move_a_const is not None and is_ko_a and move_a_const.protect is False:
-        for i, opp in enumerate(opp_active_list):
-            if not (i == cmd_a_target and is_ko_a) and opp and opp.hp > 0:
-                effective_opponents.append(opp)
+        threat_adjusted = threat_b_by_excluded.get(cmd_a_target, threat_b_by_excluded[-1])
     else:
-        effective_opponents = [opp for opp in opp_active_list if opp and opp.hp > 0]
-
-    if not effective_opponents:
-        threat_adjusted = 0.0
-    else:
-        threat_adjusted, _ = estimate_incoming_threat(pkm_b, effective_opponents, state, params, locked_moves)
+        threat_adjusted = threat_b_by_excluded[-1]
 
     dmg_taken = threat_adjusted
     if is_move_b and move_b_const and move_b_const.protect or not is_move_b:
@@ -635,7 +582,7 @@ def _focus_fire_wrapper(
     return 0.0
 
 
-def _target_priority(
+def _target_priority_cached(
     is_ko_a: bool,
     is_ko_b: bool,
     move_a_const: Any,
@@ -646,12 +593,9 @@ def _target_priority(
     is_move_b: bool,
     biggest_threat_pkm: Any,
     biggest_threat_slot: int,
-    my_active_list: list[Any],
-    state: StateView,
-    params: BattleRuleParam,
-    locked_moves: dict[int, str] | None = None,
+    threat_kos_ally: bool,
 ) -> float:
-    """Compute bonus for KOing the biggest threat.
+    """Compute bonus for KOing the biggest threat using pre-computed ally KO check.
 
     Args:
         is_ko_a: Whether Pokemon A's move KOs.
@@ -664,10 +608,7 @@ def _target_priority(
         is_move_b: Whether Pokemon B's action is a move.
         biggest_threat_pkm: Biggest threat opponent view.
         biggest_threat_slot: Biggest threat slot index.
-        my_active_list: Our active Pokemon views.
-        state: Current battle state view.
-        params: Battle rule parameters.
-        locked_moves: Dict mapping opponent slot to their Choice-locked move name.
+        threat_kos_ally: Pre-computed flag: whether biggest threat can KO any ally.
 
     Returns:
         Bonus float for KOing the biggest threat.
@@ -694,12 +635,8 @@ def _target_priority(
         return 0.0
 
     bonus = TARGET_PRIORITY_BASE
-    for my_pkm in my_active_list:
-        if my_pkm and my_pkm.hp > 0:
-            _, ko_my = estimate_incoming_threat(my_pkm, [biggest_threat_pkm], state, params, locked_moves)
-            if ko_my:
-                bonus += THREAT_KO_ALLY_BASE * TARGET_PRIORITY_KO_ALLY_MULT
-                break
+    if threat_kos_ally:
+        bonus += THREAT_KO_ALLY_BASE * TARGET_PRIORITY_KO_ALLY_MULT
 
     return bonus
 

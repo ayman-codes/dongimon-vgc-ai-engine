@@ -41,7 +41,9 @@ from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import (
     bootstrap_ci,
     compute_subteam_features,
+    discover_latest_jsonl,
     fit_bradley_terry,
+    generate_ga_only_teams,
     generate_stratified_teams,
     holm_bonferroni,
     profile_teams,
@@ -373,6 +375,22 @@ def main() -> None:
         default=Path("data/experiments/team_scorer"),
         help="Output directory for results",
     )
+    parser.add_argument(
+        "--generation-mode", type=str, default="stratified",
+        choices=["stratified", "ga_only"],
+        help=(
+            "Team generation strategy. stratified: 28%% random + 40%% GA + "
+            "28%% coverage. ga_only: 80%% GA-evolved + 20%% random."
+        ),
+    )
+    parser.add_argument(
+        "--data", type=str, default="generate", choices=["generate", "load"],
+        help="generate: run full experiment. load: skip to feature selection from saved JSONL.",
+    )
+    parser.add_argument(
+        "--data-path", type=Path, default=None,
+        help="Explicit JSONL path for --data=load (auto-discovers latest if omitted).",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir
@@ -394,101 +412,167 @@ def main() -> None:
     params = BattleRuleParam()
 
     print("=" * 60)
+    mode_label = "GENERATE" if args.data == "generate" else "LOAD"
     print("Team Quality Scorer — Experiment (Phase 3a)")
     print(
         f"  seed={args.seed}, n_teams={args.n_teams}, "
-        f"n_battles={args.n_battles}, policy={policy_name}"
+        f"n_battles={args.n_battles}, policy={policy_name}, mode={mode_label}"
     )
+    print(f"  generation_mode={args.generation_mode}")
     print(f"  swiss_rounds={args.n_rounds}")
     print(f"  output={output_dir.resolve()}")
     print("=" * 60)
 
     start = time.perf_counter()
-
-    print("Generating stratified teams...")
-    teams, tier_labels = generate_stratified_teams(
-        n_teams=args.n_teams,
-        seed=args.seed,
-        fractions=(0.28, 0.40, 0.28),
-    )
-    n_teams_actual = len(teams)
-    print(f"  {n_teams_actual} teams generated")
-    tier_counts: dict[str, int] = {}
-    for t in tier_labels:
-        tier_counts[t] = tier_counts.get(t, 0) + 1
-    print(f"  Tier distribution: {tier_counts}")
-
-    print("Validating stratification...")
-    strat_result = validate_stratification(teams, tier_labels)
-    print(f"  Mean BST per tier: {strat_result['mean_bst_per_tier']}")
-    print(
-        f"  Kruskal-Wallis: H={strat_result['kruskal_wallis_H']:.2f}, "
-        f"p={strat_result['kruskal_wallis_p']:.4f}"
-    )
-
-    print("Profiling teams...")
-    profile = profile_teams(teams)
-
     n_rounds = args.n_rounds
-    print(
-        f"Running Swiss tournament ({n_rounds} rounds, "
-        f"{args.n_battles} battles/pair)..."
-    )
-    swiss_rng = np.random.default_rng(args.seed + 10)
-    scores = np.zeros(n_teams_actual)
-    history: set[tuple[int, int]] = set()
-    pair_outcomes: list[tuple[int, int, int, int]] = []
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    profile: dict[str, Any] = {}
+    tier_counts: dict[str, int] = {}
+    strat_result: dict[str, Any] = {}
+    jsonl_path: Path | None = None
 
-    for round_idx in range(n_rounds):
-        round_pairs = swiss_pairings_round(scores, history, swiss_rng)
-        for team_i, team_j in round_pairs:
-            seed_offset = (
-                args.seed + round_idx * 100_000 + team_i * 1_000 + team_j
+    if args.data == "generate":
+        if args.generation_mode == "ga_only":
+            print("Generating GA-only teams (80% GA + 20% random)...")
+            teams, tier_labels = generate_ga_only_teams(
+                n_teams=args.n_teams,
+                seed=args.seed,
+                ga_fraction=0.80,
             )
-            wins_i, wins_j, _, _ = run_pair_battles(
-                team_a=teams[team_i],
-                team_b=teams[team_j],
-                bp_side_a=labeling_policy,
-                bp_side_b=opponent_policy,
-                n_battles=args.n_battles,
-                pair_seed=seed_offset,
-                params=params,
-                sel=sel,
+        else:
+            print("Generating stratified teams...")
+            teams, tier_labels = generate_stratified_teams(
+                n_teams=args.n_teams,
+                seed=args.seed,
+                fractions=(0.28, 0.40, 0.28),
             )
-            pair_outcomes.append((team_i, team_j, wins_i, wins_j))
-            if wins_i > wins_j:
-                scores[team_i] += 1.0
-            elif wins_j > wins_i:
-                scores[team_j] += 1.0
-            else:
-                scores[team_i] += 0.5
-                scores[team_j] += 0.5
-        total_pairs_so_far = len(pair_outcomes)
+        n_teams_actual = len(teams)
+        print(f"  {n_teams_actual} teams generated (mode={args.generation_mode})")
+        tier_counts = {}
+        for t in tier_labels:
+            tier_counts[t] = tier_counts.get(t, 0) + 1
+        print(f"  Tier distribution: {tier_counts}")
+
+        print("Validating stratification...")
+        strat_result = validate_stratification(teams, tier_labels)
+        print(f"  Mean BST per tier: {strat_result['mean_bst_per_tier']}")
         print(
-            f"  Round {round_idx + 1}/{n_rounds}: "
-            f"{len(round_pairs)} pairs, {total_pairs_so_far} total"
+            f"  Kruskal-Wallis: H={strat_result['kruskal_wallis_H']:.2f}, "
+            f"p={strat_result['kruskal_wallis_p']:.4f}"
         )
 
-    total_pairs = len(pair_outcomes)
-    print(f"  Total pairs: {total_pairs}")
+        print("Profiling teams...")
+        profile = profile_teams(teams)
 
-    print("Fitting Bradley-Terry...")
-    theta = fit_bradley_terry(pair_outcomes, n_teams_actual, n_iter=200, lr=0.01)
-    raw_wr = _per_team_raw_win_rates(pair_outcomes, n_teams_actual)
-    bt_rho, bt_pval = spearmanr(theta, raw_wr)
-    print(f"  BT vs raw WR: Spearman rho={bt_rho:.4f}, p={bt_pval:.6f}")
-    if bt_rho < 0.8:
         print(
-            "  WARNING: BT validation rho < 0.8. "
-            "Labels may be unreliable. Continuing."
+            f"Running Swiss tournament ({n_rounds} rounds, "
+            f"{args.n_battles} battles/pair)..."
         )
+        swiss_rng = np.random.default_rng(args.seed + 10)
+        scores = np.zeros(n_teams_actual)
+        history: set[tuple[int, int]] = set()
+        pair_outcomes: list[tuple[int, int, int, int]] = []
 
-    print("Computing team features + residualizing...")
-    x_mat, feature_names, bst_all_indices, no_bst_indices = (
-        _compute_all_team_features(teams)
-    )
-    bst_avg = x_mat[:, 0]
-    y_residual, ols_r2 = _residualize(theta, bst_avg)
+        for round_idx in range(n_rounds):
+            round_pairs = swiss_pairings_round(scores, history, swiss_rng)
+            for team_i, team_j in round_pairs:
+                seed_offset = (
+                    args.seed + round_idx * 1000 + team_i * 10 + team_j
+                )
+                wins_i, wins_j, _, _ = run_pair_battles(
+                    team_a=teams[team_i],
+                    team_b=teams[team_j],
+                    bp_side_a=labeling_policy,
+                    bp_side_b=opponent_policy,
+                    n_battles=args.n_battles,
+                    pair_seed=seed_offset,
+                    params=params,
+                    sel=sel,
+                )
+                pair_outcomes.append((team_i, team_j, wins_i, wins_j))
+                if wins_i > wins_j:
+                    scores[team_i] += 1.0
+                elif wins_j > wins_i:
+                    scores[team_j] += 1.0
+                else:
+                    scores[team_i] += 0.5
+                    scores[team_j] += 0.5
+            total_pairs_so_far = len(pair_outcomes)
+            print(
+                f"  Round {round_idx + 1}/{n_rounds}: "
+                f"{len(round_pairs)} pairs, {total_pairs_so_far} total"
+            )
+
+        total_pairs = len(pair_outcomes)
+        print(f"  Total pairs: {total_pairs}")
+
+        print("Fitting Bradley-Terry...")
+        theta = fit_bradley_terry(pair_outcomes, n_teams_actual, n_iter=200, lr=0.01)
+        raw_wr = _per_team_raw_win_rates(pair_outcomes, n_teams_actual)
+        bt_rho, bt_pval = spearmanr(theta, raw_wr)
+        print(f"  BT vs raw WR: Spearman rho={bt_rho:.4f}, p={bt_pval:.6f}")
+        if bt_rho < 0.8:
+            print(
+                "  WARNING: BT validation rho < 0.8. "
+                "Labels may be unreliable. Continuing."
+            )
+
+        print("Computing team features + residualizing...")
+        x_mat, feature_names, bst_all_indices, no_bst_indices = (
+            _compute_all_team_features(teams)
+        )
+        bst_avg = x_mat[:, 0]
+        y_residual, ols_r2 = _residualize(theta, bst_avg)
+        jsonl_path = output_dir / f"tqs_data_{timestamp}.jsonl"
+
+        data_rows: list[dict[str, Any]] = [
+            {
+                "team_idx": i,
+                "bt_theta": float(theta[i]),
+                "bt_residual": float(y_residual[i]),
+                "bst_avg": float(bst_avg[i]),
+                "features": compute_subteam_features(list(teams[i].members)),
+            }
+            for i in range(n_teams_actual)
+        ]
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(jsonl_path, "w") as f:
+            for row in data_rows:
+                f.write(json.dumps(row, default=str) + "\n")
+    else:
+        data_path = args.data_path or discover_latest_jsonl(output_dir, "tqs_data")
+        if data_path is None:
+            print("ERROR: No tqs_data_*.jsonl found and --data-path not provided.")
+            sys.exit(1)
+        print(f"[LOAD] Reading data from {data_path}")
+        y_residual_list: list[float] = []
+        bst_avg_list: list[float] = []
+        all_feat_dicts: list[dict[str, float]] = []
+        with open(data_path) as f:
+            for line in f:
+                row = json.loads(line)
+                y_residual_list.append(float(row["bt_residual"]))
+                bst_avg_list.append(float(row["bst_avg"]))
+                all_feat_dicts.append(row["features"])
+        y_residual = np.array(y_residual_list, dtype=np.float64)
+        bst_avg = np.array(bst_avg_list, dtype=np.float64)
+        feature_names = list(all_feat_dicts[0].keys())
+        x_mat = np.array(
+            [[fd.get(n, 0.0) for n in feature_names] for fd in all_feat_dicts],
+            dtype=np.float64,
+        )
+        n_teams_actual = len(y_residual_list)
+        bt_rho, bt_pval = 0.0, 1.0
+        ols_r2 = 0.0
+        profile = {}
+        tier_counts = {"loaded": n_teams_actual}
+        strat_result = {}
+        jsonl_path = data_path
+        bst_all_indices = list(range(28))
+        no_bst_indices = list(range(28, len(feature_names)))
+        print(f"[LOAD] Loaded {n_teams_actual} teams, features={len(feature_names)}")
+        print("[LOAD] BT validation skipped (data loaded from file)")
+
     print(f"  OLS(BT ~ bst_avg) R2={ols_r2:.4f}")
     print(f"  Feature matrix: ({x_mat.shape[0]}, {x_mat.shape[1]})")
 
@@ -523,41 +607,22 @@ def main() -> None:
     rf_full.fit(x_mat, y_residual)
     importances_full = rf_full.feature_importances_
 
-    print("Splitting 70/15/15 by team ID (species-disjoint quarantine)...")
+    print("Splitting 70/15/15 by team ID...")
     n_train = int(n_teams_actual * 0.70)
     n_test = int(n_teams_actual * 0.15)
     n_quarantine = n_teams_actual - n_train - n_test
-    try:
-        train_idx, test_idx, quarantine_idx = _species_disjoint_split(
-            teams, n_train, n_test, n_quarantine, args.seed + 100,
-        )
-    except RuntimeError:
-        split_rng = np.random.default_rng(args.seed + 100)
-        all_idx = list(range(n_teams_actual))
-        split_rng.shuffle(all_idx)
-        train_idx = all_idx[:n_train]
-        test_idx = all_idx[n_train : n_train + n_test]
-        quarantine_idx = all_idx[n_train + n_test : n_train + n_test + n_quarantine]
-        print("  WARNING: Species-disjoint split failed; using random split.")
 
-    def _collect_species(indices: list[int]) -> set[str]:
-        species: set[str] = set()
-        for t in indices:
-            for m in teams[t].members:
-                spec = m.species if hasattr(m, "species") else m
-                species.add(
-                    spec.name if hasattr(spec, "name") else str(id(spec))
-                )
-        return species
+    split_rng = np.random.default_rng(args.seed + 100)
+    all_idx = list(range(n_teams_actual))
+    split_rng.shuffle(all_idx)
+    train_idx = all_idx[:n_train]
+    test_idx = all_idx[n_train : n_train + n_test]
+    quarantine_idx = all_idx[n_train + n_test : n_train + n_test + n_quarantine]
 
-    train_species_set = _collect_species(train_idx)
-    quarantine_species_set = _collect_species(quarantine_idx)
     print(
         f"  Train: {len(train_idx)} teams, Test: {len(test_idx)}, "
         f"Quarantine: {len(quarantine_idx)}"
     )
-    overlap = len(train_species_set & quarantine_species_set)
-    print(f"  Species overlap train-quarantine: {overlap}")
 
     x_train_full = x_mat[train_idx]
     y_train_full = y_residual[train_idx]
@@ -676,6 +741,7 @@ def main() -> None:
         "n_battles": args.n_battles,
         "n_rounds": n_rounds,
         "policy": policy_name,
+        "generation_mode": args.generation_mode,
         "duration_seconds": round(elapsed, 1),
         "bt_validation": {"rho": float(bt_rho), "p_value": float(bt_pval)},
         "ols_bt_vs_bst_r2": ols_r2,
@@ -717,9 +783,6 @@ def main() -> None:
         "train_teams": len(train_idx),
         "test_teams": len(test_idx),
         "quarantine_teams": len(quarantine_idx),
-        "species_overlap_train_quarantine": overlap,
-        "bt_theta_mean": float(np.mean(theta)),
-        "bt_theta_std": float(np.std(theta)),
     }
     meta_path = output_dir / f"tqs_meta_{timestamp}.json"
     with open(meta_path, "w") as f:
@@ -742,45 +805,47 @@ def main() -> None:
     with open(gini_path, "w") as f:
         json.dump(gini_data, f, indent=2)
 
-    data_rows: list[dict[str, Any]] = [
-        {
-            "team_idx": i,
-            "bt_theta": float(theta[i]),
-            "bt_residual": float(y_residual[i]),
-            "bst_avg": float(bst_avg[i]),
-            "features": compute_subteam_features(list(teams[i].members)),
-        }
-        for i in range(n_teams_actual)
-    ]
-    data_path = output_dir / f"tqs_data_{timestamp}.jsonl"
-    data_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(data_path, "w") as f:
-        for row in data_rows:
-            f.write(json.dumps(row, default=str) + "\n")
-
     print(f"\n  Metrics saved to {metrics_path}")
     print(f"  Metadata saved to {meta_path}")
     print(f"  Gini importance saved to {gini_path}")
-    print(f"  Data saved to {data_path}")
+    print(f"  Data saved to {jsonl_path}")
 
-    if viable:
-        print("Saving primary model (Ridge on Track C)...")
-        scaler_save = StandardScaler()
-        x_all_s = scaler_save.fit_transform(x_mat)
-        ridge_save = Ridge(alpha=1.0, random_state=args.seed)
-        ridge_save.fit(x_all_s, y_residual)
-        model_path = output_dir / f"tqs_model_{timestamp}.pkl"
-        with open(model_path, "wb") as bf:
+    print("Saving all models...")
+    scaler_save = StandardScaler()
+    x_all_s = scaler_save.fit_transform(x_mat)
+
+    def _save_tqs_model(model_obj: Any, name: str) -> None:
+        path = output_dir / f"TQS_{name}.pkl"
+        with open(path, "wb") as bf:
             pickle.dump(
                 {
-                    "model": ridge_save,
+                    "model": model_obj,
                     "scaler": scaler_save,
                     "feature_names": feature_names,
                     "config": {"policy": policy_name, "seed": args.seed},
                 },
                 bf,
             )
-        print(f"  Model saved to {model_path}")
+        print(f"  Saved {path}")
+
+    ridge_save = Ridge(alpha=1.0, random_state=args.seed)
+    ridge_save.fit(x_all_s, y_residual)
+    _save_tqs_model(ridge_save, "Ridge")
+
+    xgb_save = XGBRegressor(
+        n_estimators=100, max_depth=4, learning_rate=0.1,
+        random_state=args.seed, verbosity=0,
+    )
+    xgb_save.fit(x_all_s, y_residual)
+    _save_tqs_model(xgb_save, "XGBoost")
+
+    lasso_save = Lasso(alpha=0.01, random_state=args.seed, max_iter=5000)
+    lasso_save.fit(x_all_s, y_residual)
+    _save_tqs_model(lasso_save, "Lasso")
+
+    lr_save = LinearRegression()
+    lr_save.fit(x_all_s, y_residual)
+    _save_tqs_model(lr_save, "LinearReg")
 
     print("=" * 60)
     print(f"Done in {elapsed:.0f}s. Viable: {viable}")

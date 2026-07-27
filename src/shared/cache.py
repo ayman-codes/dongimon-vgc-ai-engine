@@ -42,7 +42,7 @@ def _safe_stat(pkm: Any, stat: Stat) -> Any:
 
     Args:
         pkm: A Pokemon, BattlingPokemon, or BattlingPokemonView.
-        stat: The Stat enum member to retrieve.
+        stat: The Stat constant (integer index) to retrieve.
 
     Returns:
         Integer stat value, or 0 if not resolvable.
@@ -50,9 +50,17 @@ def _safe_stat(pkm: Any, stat: Stat) -> Any:
     for attr in ("constants",):
         obj = getattr(pkm, attr, None)
         if obj and hasattr(obj, "stats"):
-            return int(obj.stats.get(stat, 0))
+            stats_obj = obj.stats
+            if isinstance(stats_obj, dict):
+                return int(stats_obj.get(stat, 0))
+            if isinstance(stats_obj, (tuple, list)) and isinstance(stat, int) and stat < len(stats_obj):
+                return int(stats_obj[stat])
     if hasattr(pkm, "stats"):
-        return int(pkm.stats.get(stat, 0))
+        stats_obj = pkm.stats
+        if isinstance(stats_obj, dict):
+            return int(stats_obj.get(stat, 0))
+        if isinstance(stats_obj, (tuple, list)) and isinstance(stat, int) and stat < len(stats_obj):
+            return int(stats_obj[stat])
     return 0
 
 

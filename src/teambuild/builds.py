@@ -45,10 +45,11 @@ def create_single_optimal_build(species: PokemonSpecies) -> Pokemon | None:
 
 
 def species_power(species: PokemonSpecies) -> float:
-    """Compute a stat-based raw combat power proxy.
+    """Compute a STAB-aware expected damage proxy for a species.
 
-    Uses the product of the best attacking stat and best move base power
-    for offensive power, plus a bulk metric. No damage formula calls.
+    For each damaging move, computes accuracy * base_power * relevant_attack
+    * STAB multiplier. The offensive component is the maximum across all moves.
+    Bulk is HP * (Def + SpD) * 0.5.
 
     Args:
         species: The Pokemon species to evaluate.
@@ -66,18 +67,23 @@ def species_power(species: PokemonSpecies) -> float:
     phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
     spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
 
-    best_phys = max(
-        (m.base_power for m in species.moves if m.category in phys_cats and m.base_power > 0),
-        default=0,
-    )
-    best_spec = max(
-        (m.base_power for m in species.moves if m.category in spec_cats and m.base_power > 0),
-        default=0,
-    )
+    best_offensive = 0.0
+    for m in species.moves:
+        if m.base_power <= 0:
+            continue
+        acc = m.accuracy if m.accuracy is not None else 1.0
+        stab = 1.5 if m.pkm_type in species.types else 1.0
+        if m.category in phys_cats:
+            score = acc * m.base_power * atk * stab
+        elif m.category in spec_cats:
+            score = acc * m.base_power * spa * stab
+        else:
+            continue
+        if score > best_offensive:
+            best_offensive = score
 
-    offensive = max(atk * best_phys, spa * best_spec)
     bulk = hp * (df + spd) * 0.5
-    return float(offensive + bulk)
+    return float(best_offensive + bulk)
 
 
 def species_role(species: PokemonSpecies) -> str:
@@ -128,7 +134,10 @@ def _detect_role(base: tuple[int, ...]) -> tuple[str, str]:
 
 
 def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
-    """Pick EV spread and nature for a role.
+    """Pick EV spread and nature for a role using bulk-first philosophy.
+
+    All roles invest 252 EVs in HP for maximum survivability in doubles.
+    Remaining EVs go to the primary offensive or defensive stat.
 
     Args:
         role: Tuple of (role_label, subtype) from _detect_role.
@@ -140,14 +149,14 @@ def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[
     _, subtype = role
 
     if subtype == "physical":
-        return (6, 252, 0, 0, 0, 252), Nature.ADAMANT
+        return (252, 168, 0, 84, 0, 6), Nature.ADAMANT
     if subtype == "special":
-        return (6, 0, 0, 252, 0, 252), Nature.TIMID
+        return (252, 0, 0, 168, 84, 6), Nature.MODEST
 
     if subtype == "physical_defense":
-        return (252, 0, 252, 0, 6, 0), Nature.IMPISH
+        return (252, 0, 168, 0, 84, 6), Nature.IMPISH
     if subtype == "special_defense":
-        return (252, 0, 6, 0, 252, 0), Nature.CALM
+        return (252, 0, 84, 0, 168, 6), Nature.CALM
 
     return (252, 128, 0, 128, 0, 2), Nature.HARDY
 

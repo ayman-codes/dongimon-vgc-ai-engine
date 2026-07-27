@@ -66,7 +66,13 @@ def run_sub_tournament(
     build_matchups = itertools.product(opp_build_list_a, opp_build_list_b)
 
     for opp_build_a, opp_build_b in build_matchups:
+        if not opp_build_a.moves or not opp_build_b.moves:
+            continue
+
         my_pair_pkm = [my_full_team.members[i] for i in my_pair_indices]
+        if not all(p.moves for p in my_pair_pkm):
+            continue
+
         remaining = [
             (i, my_full_team.members[i])
             for i in range(len(my_full_team.members))

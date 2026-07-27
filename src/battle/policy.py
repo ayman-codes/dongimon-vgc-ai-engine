@@ -18,7 +18,6 @@ from src.battle.move_scoring import (
     score_protect_move,
     score_switch_action,
 )
-from src.config.constants import BOARD_WEIGHT
 from src.config.loader import load_battle_weights
 
 MAX_SCORE = 1000.0
@@ -249,7 +248,6 @@ class DongimonBattlePolicy(BattlePolicy):  # type: ignore[misc]
                 self._weights,
                 MAX_SCORE,
                 locked_moves,
-                self._weights.get("w_lookahead", BOARD_WEIGHT),
             )
             final_commands.extend(cmds)
             pkm0_log = log_a

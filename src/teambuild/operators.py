@@ -470,27 +470,75 @@ def _fitness_viability(members: list[Any], viability_scores: dict[Any, float]) -
     return min(total / max_possible, 1.0)
 
 
-def _fitness_type_coverage(members: list[Any]) -> float:
-    """Fraction of 18 types hit super-effectively by the team.
+def _compute_type_damage_vector(members: list[Any]) -> list[float]:
+    """Compute max expected damage per defending type across all team members.
+
+    For each of 18 types, finds the maximum damage any team member can deal
+    to a hypothetical Pokemon of that type, considering STAB and accuracy.
 
     Args:
         members: List of species.
 
     Returns:
-        Coverage fraction (0–1).
+        List of 18 floats, one per defending type.
     """
-    covered = set()
+    damage_per_type = [0.0] * N_TYPES
+
+    phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
+    spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
+
     for species in members:
+        base = species.base_stats
+        atk = base[Stat.ATTACK]
+        spa = base[Stat.SPECIAL_ATTACK]
+
         for move in species.moves:
             if move.base_power <= 0:
                 continue
-            atk_name = _type_name(move.pkm_type)
-            for def_name in TYPE_NAMES:
-                eff = type_effectiveness(atk_name, [def_name])
-                if eff > 1.0:
-                    covered.add(def_name)
+            acc = move.accuracy if move.accuracy is not None else 1.0
+            stab = 1.5 if move.pkm_type in species.types else 1.0
 
-    return len(covered) / N_TYPES if len(covered) else 0.0
+            if move.category in phys_cats:
+                raw = acc * move.base_power * atk * stab
+            elif move.category in spec_cats:
+                raw = acc * move.base_power * spa * stab
+            else:
+                continue
+
+            atk_name = _type_name(move.pkm_type)
+            for type_idx, def_name in enumerate(TYPE_NAMES):
+                eff = type_effectiveness(atk_name, [def_name])
+                dmg = raw * eff
+                if dmg > damage_per_type[type_idx]:
+                    damage_per_type[type_idx] = dmg
+
+    return damage_per_type
+
+
+def _fitness_type_coverage(members: list[Any]) -> float:
+    """Damage-weighted type coverage score.
+
+    For each of 18 defending types, computes the maximum expected damage
+    any team member can deal. Score combines breadth (fraction of types
+    threatened) with average damage quality.
+
+    Args:
+        members: List of species.
+
+    Returns:
+        Coverage score (0-1).
+    """
+    damage_per_type = _compute_type_damage_vector(members)
+
+    max_dmg = max(damage_per_type) if damage_per_type else 0.0
+    if max_dmg == 0:
+        return 0.0
+
+    threshold = max_dmg * 0.1
+    breadth = sum(1 for d in damage_per_type if d > threshold) / N_TYPES
+    quality = sum(damage_per_type) / (N_TYPES * max_dmg)
+
+    return 0.5 * breadth + 0.5 * quality
 
 
 def _fitness_type_defence(members: list[Any]) -> float:
@@ -576,34 +624,25 @@ def _fitness_role_diversity(members: list[Any]) -> float:
 
 
 def _fitness_coverage_balance(members: list[Any]) -> float:
-    """Coverage balance score — how evenly the team threatens all types.
+    """Coverage balance — how evenly the team threatens all types.
 
-    Computes the total super-effective coverage count per type across all
-    team members. A perfectly balanced team threatens every type roughly
-    equally (low range). A team with blind spots has high range.
+    Uses the damage vector to compute range-based evenness. A team that
+    threatens every type with similar damage scores high. A team with
+    blind spots (some types at near-zero damage) scores low.
 
     Args:
         members: List of species.
 
     Returns:
-        Balance score (0–1). 1.0 = perfect balance, 0.0 = worst.
+        Balance score (0-1). 1.0 = perfect balance, 0.0 = worst.
     """
-    coverage_per_type = dict.fromkeys(TYPE_NAMES, 0)
-    for species in members:
-        for move in species.moves:
-            if move.base_power <= 0:
-                continue
-            atk_name = _type_name(move.pkm_type)
-            for def_name in TYPE_NAMES:
-                eff = type_effectiveness(atk_name, [def_name])
-                if eff > 1.0:
-                    coverage_per_type[def_name] = coverage_per_type.get(def_name, 0) + 1
+    damage_per_type = _compute_type_damage_vector(members)
 
-    counts = list(coverage_per_type.values())
-    if not counts:
+    max_dmg = max(damage_per_type) if damage_per_type else 0.0
+    if max_dmg == 0:
         return 0.0
-    min_cov = min(counts)
-    max_cov = max(counts)
-    if max_cov == min_cov:
+
+    min_dmg = min(damage_per_type)
+    if max_dmg == min_dmg:
         return 1.0
-    return 1.0 - (max_cov - min_cov) / max(max_cov, 1)
+    return 1.0 - (max_dmg - min_dmg) / max_dmg

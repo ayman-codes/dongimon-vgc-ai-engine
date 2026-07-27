@@ -120,15 +120,17 @@ def score_offensive_move(
             defender=target_pokemon,
         )
 
+        move_acc = move_const.accuracy if move_const.accuracy is not None else DEFAULT_ACCURACY
+
         if target_pokemon.hp > 0:
             damage_for_scoring = min(actual_damage_dealt, target_pokemon.hp)
             percent_hp_dealt = damage_for_scoring / target_pokemon.hp
-            action_score += percent_hp_dealt * DAMAGE_SCORE_TO_PCT_MULT
+            action_score += percent_hp_dealt * DAMAGE_SCORE_TO_PCT_MULT * move_acc
 
         is_ko_potential = actual_damage_dealt >= target_pokemon.hp
 
         if is_ko_potential:
-            action_score += KO_BONUS
+            action_score += KO_BONUS * move_acc
 
     utility_score = 0.0
 
@@ -1081,7 +1083,6 @@ def _field_setup_move(
         new_terrain != Terrain.NONE and new_terrain != current_state.field
     ):
         net_swing = 0.0
-        all_active = my_team_actives + opponent_actives
 
         temp_state = State((current_state.sides[0].team, current_state.sides[1].team))
         if new_weather != Weather.CLEAR:
@@ -1089,31 +1090,44 @@ def _field_setup_move(
         if new_terrain != Terrain.NONE:
             temp_state.field = new_terrain
 
-        for pkm in all_active:
-            if not pkm or pkm.hp <= 0:
-                continue
+        opp_representative = next((p for p in opponent_actives if p and p.hp > 0), None)
+        ally_representative = next((p for p in my_team_actives if p and p.hp > 0), None)
 
+        for pkm in my_team_actives:
+            if not pkm or pkm.hp <= 0 or not opp_representative:
+                continue
             best_before = -1
             best_after = -1
-
             for pkm_move in pkm.constants.species.moves:
                 if pkm_move.category not in (Category.PHYSICAL, Category.SPECIAL):
                     continue
-
-                dmg_before = calculate_damage(params, 0, pkm_move, current_state, pkm, attacker)
-                dmg_after = calculate_damage(params, 0, pkm_move, temp_state, pkm, attacker)
-
+                dmg_before = calculate_damage(params, 0, pkm_move, current_state, pkm, opp_representative)
+                dmg_after = calculate_damage(params, 0, pkm_move, temp_state, pkm, opp_representative)
                 if dmg_before > best_before:
                     best_before = dmg_before
                     best_after = dmg_after
+            if best_before >= 0:
+                net_swing += best_after - best_before
 
-            swing = best_after - best_before
-            side_mult = 1.0 if pkm in my_team_actives else -1.0
-            net_swing += swing * side_mult
+        for pkm in opponent_actives:
+            if not pkm or pkm.hp <= 0 or not ally_representative:
+                continue
+            best_before = -1
+            best_after = -1
+            for pkm_move in pkm.constants.species.moves:
+                if pkm_move.category not in (Category.PHYSICAL, Category.SPECIAL):
+                    continue
+                dmg_before = calculate_damage(params, 1, pkm_move, current_state, pkm, ally_representative)
+                dmg_after = calculate_damage(params, 1, pkm_move, temp_state, pkm, ally_representative)
+                if dmg_before > best_before:
+                    best_before = dmg_before
+                    best_after = dmg_after
+            if best_before >= 0:
+                net_swing -= best_after - best_before
 
         setup_score += net_swing
 
-        for pkm in all_active:
+        for pkm in my_team_actives + opponent_actives:
             if not pkm or pkm.hp <= 0:
                 continue
             side_mult = 1.0 if pkm in my_team_actives else -1.0

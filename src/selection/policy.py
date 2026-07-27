@@ -1,9 +1,9 @@
 """Selection Policy — Team Preview decision-making.
 
 Runs the full pipeline: predict opponent builds from species views,
-then score all 4-Pokemon rosters via a JJJ-style damage matrix,
-pre-filter to the top candidates, and simulate only those via
-pair-vs-pair sub-tournament for the final ranking.
+then score all 4-Pokemon rosters via a JJJ-style damage-ratio matrix
+with coverage balance, pre-filter to the top candidates, and simulate
+only those via pair-vs-pair sub-tournament for the final ranking.
 """
 
 import itertools
@@ -12,14 +12,17 @@ from typing import Any
 from vgc2.agent import SelectionPolicy
 from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.battle_engine import Team
-from vgc2.battle_engine.modifiers import Stat
+from vgc2.battle_engine.modifiers import Category, Stat
 
 from src.selection.prediction import predict_opponent_builds
 from src.selection.tournament import generate_team_combinations, run_sub_tournament
 from src.shared.types import type_effectiveness, vgc2_type_to_name
-from src.teambuild.builds import species_power
 
 N_TOP_CANDIDATES = 5
+
+_INDIVIDUAL_WEIGHT = 1.07
+_BULK_WEIGHT = 0.42
+_BALANCE_WEIGHT = 0.30
 
 
 class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
@@ -113,11 +116,13 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         my_full_team: Team,
         opp_views: list[Any],
     ) -> float:
-        """Score a 4-Pokemon roster using a JJJ-style damage proxy matrix.
+        """Score a 4-Pokemon roster using JJJ-style damage-ratio estimation.
 
-        For each roster member vs each opponent species, estimates a
-        damage-proxy (species_power × best type effectiveness) and
-        adds a defensive bulk bonus.
+        For each roster member vs each opponent species, estimates the
+        maximum damage ratio (fraction of HP dealt) using the simplified
+        damage formula with STAB, type effectiveness, accuracy, and
+        priority bonus. Adds a coverage balance term penalizing rosters
+        that concentrate damage on few opponents.
 
         Args:
             roster: Tuple of 4 indices into my_full_team.
@@ -127,29 +132,98 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         Returns:
             Float score (higher = better matchup).
         """
-        total = 0.0
+        n_opp = len(opp_views)
+        if n_opp == 0:
+            return 0.0
+
+        damage_per_opp = [0.0] * n_opp
+        total_individual = 0.0
+
         for my_idx in roster:
             member = my_full_team.members[my_idx]
-            member_spec = member.species if hasattr(member, 'species') else member
-            power = species_power(member_spec)
+            member_spec = member.species if hasattr(member, "species") else member
 
-            for opp_view in opp_views:
-                opp_species = opp_view.species
-                opp_type_names = [vgc2_type_to_name(t.value) for t in opp_species.types]
-                best_eff = 1.0
-                for move in member_spec.moves:
-                    if move.base_power <= 0:
-                        continue
-                    atk_type = move.pkm_type.value if hasattr(move.pkm_type, 'value') else move.pkm_type
-                    atk_name = vgc2_type_to_name(atk_type)
-                    eff = type_effectiveness(atk_name, opp_type_names)
-                    if eff > best_eff:
-                        best_eff = eff
-                total += power * best_eff
+            individual_score = 0.0
+            for opp_idx, opp_view in enumerate(opp_views):
+                ratio = self._max_damage_ratio(member_spec, opp_view)
+                individual_score += ratio
+                damage_per_opp[opp_idx] += ratio
 
-            total += self._defensive_multiplier(member) * 0.42
+            total_individual += _INDIVIDUAL_WEIGHT * individual_score
+            total_individual += _BULK_WEIGHT * self._defensive_multiplier(member)
 
-        return total
+        max_dmg = max(damage_per_opp) if damage_per_opp else 0.0
+        if max_dmg > 0:
+            min_dmg = min(damage_per_opp)
+            balance = 1.0 - (max_dmg - min_dmg) / max_dmg
+        else:
+            balance = 0.0
+
+        return total_individual + _BALANCE_WEIGHT * balance
+
+    @staticmethod
+    def _max_damage_ratio(my_species: Any, opp_view: Any) -> float:
+        """Estimate max damage ratio of one of our species vs an opponent.
+
+        Uses the simplified damage formula:
+        ratio = (42 * effective_BP * Atk / Def) / (50 * HP) * STAB * type_eff
+
+        Priority moves get an effective BP bonus (+12 per priority level).
+
+        Args:
+            my_species: Our Pokemon species (or Pokemon with .species).
+            opp_view: Opponent PokemonView.
+
+        Returns:
+            Maximum damage ratio across all moves (fraction of opp HP).
+        """
+        spec = my_species.species if hasattr(my_species, "species") else my_species
+        opp_spec = opp_view.species if hasattr(opp_view, "species") else opp_view
+
+        opp_types = [vgc2_type_to_name(t.value) for t in opp_spec.types]
+        opp_hp = opp_spec.base_stats[Stat.MAX_HP]
+        opp_def = opp_spec.base_stats[Stat.DEFENSE]
+        opp_spd = opp_spec.base_stats[Stat.SPECIAL_DEFENSE]
+
+        if opp_hp <= 0:
+            return 0.0
+
+        phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
+        spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
+
+        best_ratio = 0.0
+        for move in spec.moves:
+            if move.base_power <= 0:
+                continue
+            acc = move.accuracy if move.accuracy is not None else 1.0
+            stab = 1.5 if move.pkm_type in spec.types else 1.0
+            priority = move.priority if hasattr(move, "priority") else 0
+            effective_bp = move.base_power + 12 * priority
+
+            atk_name = vgc2_type_to_name(
+                move.pkm_type.value if hasattr(move.pkm_type, "value") else move.pkm_type
+            )
+            eff = type_effectiveness(atk_name, opp_types)
+
+            if move.category in phys_cats:
+                atk_stat = spec.base_stats[Stat.ATTACK]
+                def_stat = opp_def
+            elif move.category in spec_cats:
+                atk_stat = spec.base_stats[Stat.SPECIAL_ATTACK]
+                def_stat = opp_spd
+            else:
+                continue
+
+            if def_stat <= 0:
+                continue
+
+            ratio = (42.0 * effective_bp * atk_stat / def_stat) / (50.0 * opp_hp)
+            ratio *= acc * stab * eff
+
+            if ratio > best_ratio:
+                best_ratio = ratio
+
+        return best_ratio
 
     @staticmethod
     def _defensive_multiplier(pkm: Any) -> float:

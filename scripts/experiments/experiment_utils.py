@@ -44,6 +44,24 @@ TYPE_NAMES = [
 _POOL_CACHE: tuple[list[Any], dict[Any, float]] | None = None
 
 
+def discover_latest_jsonl(directory: Path, prefix: str) -> Path | None:
+    """Find the most recent {prefix}_*.jsonl file in a directory.
+
+    Matches files by the timestamp embedded in the filename
+    (YYYYMMDD_HHMMSS format after the prefix). Returns the
+    file with the most recent timestamp.
+
+    Args:
+        directory: Directory to search.
+        prefix: File prefix to match (e.g. "mp_data", "tqs_data").
+
+    Returns:
+        Path to the latest file, or None if no matches found.
+    """
+    candidates = sorted(directory.glob(f"{prefix}_*.jsonl"), reverse=True)
+    return candidates[0] if candidates else None
+
+
 def _get_pool() -> tuple[list[Any], dict[Any, float]]:
     """Lazily generate and cache the species pool with viability scores.
 
@@ -237,6 +255,101 @@ def generate_stratified_teams(
     combined = list(zip(teams, labels, strict=False))
     rng = np.random.default_rng(seed + 300)
     rng.shuffle(combined)
+    teams[:], labels[:] = zip(*combined, strict=True) if combined else ((), ())
+
+    return list(teams), list(labels)
+
+
+def generate_ga_only_teams(
+    n_teams: int,
+    seed: int = 42,
+    ga_fraction: float = 0.80,
+    pop_size: int = 50,
+    generations: int = 30,
+) -> tuple[list[Any], list[str]]:
+    """Generate teams primarily via GA evolution with random calibration set.
+
+    Runs multiple independent GA evolutions with different seeds to produce
+    diverse high-quality teams. A small random fraction is included for
+    lower-bound calibration of the quality scorer.
+
+    Args:
+        n_teams: Total number of teams to generate.
+        seed: Base RNG seed.
+        ga_fraction: Fraction of teams from GA (remainder are random).
+        pop_size: GA population size per run.
+        generations: GA generations per run.
+
+    Returns:
+        Tuple of (teams, tier_labels) where tier_labels[i] is one of
+        {"ga", "random"}.
+
+    Raises:
+        RuntimeError: If fallback rate exceeds 10%.
+    """
+    rng = np.random.default_rng(seed)
+    pool_species, viability = _get_pool()
+
+    n_ga = int(n_teams * ga_fraction)
+    n_random = n_teams - n_ga
+
+    fallbacks = 0
+    teams: list[Any] = []
+    labels: list[str] = []
+
+    ga_teams: list[Any] = []
+    elite_per_run = max(3, int(pop_size * 0.10))
+    ga_runs = max(1, (n_ga + elite_per_run - 1) // elite_per_run)
+
+    try:
+        for run_i in range(ga_runs):
+            ga_run_rng = np.random.default_rng(seed + 500 + run_i * 37)
+            evo_results = run_evolution(
+                pool_species=pool_species,
+                viability_scores=viability,
+                team_size=6,
+                pop_size=pop_size,
+                generations=generations,
+                mutation_rate=0.10,
+                elite_fraction=0.10,
+                rng=ga_run_rng,
+            )
+            for team_indices in evo_results:
+                if len(ga_teams) >= n_ga:
+                    break
+                team = _build_team_from_indices(list(team_indices), pool_species)
+                if team is not None:
+                    ga_teams.append(team)
+                else:
+                    fallbacks += 1
+            if len(ga_teams) >= n_ga:
+                break
+        while len(ga_teams) < n_ga:
+            ga_teams.append(gen_team(6, 4, rng))
+            fallbacks += 1
+    except Exception:
+        print("[ERROR] GA evolution crashed:")
+        traceback.print_exc()
+        ga_teams = [gen_team(6, 4, rng) for _ in range(n_ga)]
+        fallbacks += n_ga
+
+    teams.extend(ga_teams)
+    labels.extend(["ga"] * len(ga_teams))
+
+    random_teams: list[Any] = [gen_team(6, 4, rng) for _ in range(n_random)]
+    teams.extend(random_teams)
+    labels.extend(["random"] * len(random_teams))
+
+    fallback_rate = fallbacks / max(n_teams, 1)
+    if fallback_rate > 0.10:
+        raise RuntimeError(
+            f"Fallback rate {fallback_rate:.2%} exceeds 10% threshold "
+            f"(n_fallbacks={fallbacks}, n_teams={n_teams})"
+        )
+
+    combined = list(zip(teams, labels, strict=False))
+    shuffle_rng = np.random.default_rng(seed + 700)
+    shuffle_rng.shuffle(combined)
     teams[:], labels[:] = zip(*combined, strict=True) if combined else ((), ())
 
     return list(teams), list(labels)

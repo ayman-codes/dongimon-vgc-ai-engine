@@ -8,37 +8,34 @@ from pydantic import BaseModel, Field
 
 
 class BattleWeights(BaseModel):
-    """Tunable weights for the 8-component heuristic battle policy.
+    """Tunable weights for the 7-component heuristic battle policy.
 
     Each weight controls the contribution of its corresponding synergy
     or priority component to the final joint-action score. All values
-    must be positive.
+    are in [0, 1] after fixed-scale normalization.
 
     Attributes:
-        w_off_def_support: Offensive + defensive support pairing bonus weight.
-        w_base_score_a: Base individual move score for Pokémon A.
+        w_base_score: Combined individual move score weight for both Pokemon.
         w_env_synergy: Environmental effects synergy bonus weight.
         w_focus_fire: Focus fire (dual-targeting same opponent) bonus weight.
         w_target_priority: Priority for targeting the biggest threat.
-        w_base_score_b: Base individual move score for Pokémon B.
         w_survival_impact: Survival risk penalty weight (negative contribution).
+        w_off_def_support: Offensive + defensive support pairing bonus weight.
         w_setup_synergy: Setup move + follow-up pairing synergy bonus weight.
     """
 
-    w_off_def_support: float = Field(default=0.0200, gt=0.0, description="Off/Def support pairing bonus")
-    w_base_score_a: float = Field(default=0.0500, gt=0.0, description="Base score for Pokémon A")
-    w_env_synergy: float = Field(default=0.0200, gt=0.0, description="Environmental synergy bonus")
-    w_focus_fire: float = Field(default=0.2700, gt=0.0, description="Focus fire bonus")
-    w_target_priority: float = Field(default=0.1800, gt=0.0, description="Target priority bonus")
-    w_base_score_b: float = Field(default=0.1500, gt=0.0, description="Base score for Pokémon B")
-    w_survival_impact: float = Field(default=0.1300, gt=0.0, description="Survival impact penalty")
-    w_setup_synergy: float = Field(default=0.1800, gt=0.0, description="Setup synergy bonus")
+    w_base_score: float = Field(default=0.25, ge=0.0, le=1.0, description="Combined base score for both Pokemon")
+    w_env_synergy: float = Field(default=0.02, ge=0.0, le=1.0, description="Environmental synergy bonus")
+    w_focus_fire: float = Field(default=0.27, ge=0.0, le=1.0, description="Focus fire bonus")
+    w_target_priority: float = Field(default=0.18, ge=0.0, le=1.0, description="Target priority bonus")
+    w_survival_impact: float = Field(default=0.13, ge=0.0, le=1.0, description="Survival impact penalty")
+    w_off_def_support: float = Field(default=0.02, ge=0.0, le=1.0, description="Off/Def support pairing bonus")
+    w_setup_synergy: float = Field(default=0.18, ge=0.0, le=1.0, description="Setup synergy bonus")
     w_status_burn: float = Field(default=30.0, ge=0.0, description="Burn status value weight")
     w_status_sleep: float = Field(default=40.0, ge=0.0, description="Sleep status value weight")
     w_status_para: float = Field(default=20.0, ge=0.0, description="Paralysis status value weight")
     w_status_poison: float = Field(default=15.0, ge=0.0, description="Poison status value weight")
     w_status_toxic: float = Field(default=25.0, ge=0.0, description="Toxic status value weight")
-    w_lookahead: float = Field(default=0.15, ge=0.0, le=1.0, description="Board position evaluator weight")
 
 
 class SelectionConfig(BaseModel):

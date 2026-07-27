@@ -1,4 +1,7 @@
-"""All-vs-all ELO benchmark — full pipeline (teambuild + selection + battle).
+"""All-vs-all ELO benchmark — teambuild + selection quality (battle policy neutralized).
+
+All competitors use GreedyBattlePolicy to eliminate battle-policy bias.
+ELO differences reflect ONLY teambuild + selection quality.
 
 Each pairing creates fresh teams via each competitor's TeambuildPolicy.
 ELO is updated after each head-to-head matchup based on series winner.
@@ -20,8 +23,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy
-from vgc2.agent.selection import RandomSelectionPolicy
-from vgc2.agent.teambuild import RandomTeamBuildPolicy
 from vgc2.battle_engine import BattleRuleParam
 from vgc2.competition import Competitor, CompetitorManager
 from vgc2.competition.match import Match
@@ -35,24 +36,32 @@ INITIAL_ELO = 1500.0
 ELO_K = 32.0
 
 
-class GreedyFullCompetitor(Competitor):  # type: ignore[misc]
-    """Baseline using Greedy battle + random selection + random teambuild."""
+class GreedyBattleWrapper(Competitor):  # type: ignore[misc]
+    """Wraps any competitor, overriding battlepolicy with GreedyBattlePolicy.
+
+    Preserves the wrapped competitor's teambuildpolicy and selectionpolicy
+    so that ELO differences reflect only team-building and selection quality.
+    """
+
+    def __init__(self, inner: Competitor) -> None:
+        self._inner = inner
+        self._greedy_bp = GreedyBattlePolicy()
 
     @property
     def name(self) -> str:
-        return "Greedy"
+        return str(self._inner.name)
 
     @property
     def battlepolicy(self) -> Any:
-        return GreedyBattlePolicy()
+        return self._greedy_bp
 
     @property
     def selectionpolicy(self) -> Any:
-        return RandomSelectionPolicy()
+        return self._inner.selectionpolicy
 
     @property
     def teambuildpolicy(self) -> Any:
-        return RandomTeamBuildPolicy()
+        return self._inner.teambuildpolicy
 
 
 def _import_competitor_cls(module_path: str, class_name: str) -> Any:
@@ -62,11 +71,9 @@ def _import_competitor_cls(module_path: str, class_name: str) -> Any:
 
 _PLAYER_ROSTER: list[tuple[str, Any]] = [
     ("Dongimon", None),
-    ("Greedy", GreedyFullCompetitor),
     ("JJJ", _import_competitor_cls("competitors.competitor1_jjj", "JJJ_Competitor")),
     ("minimon", _import_competitor_cls("competitors.competitor2_minimon", "minimon")),
-    ("caaaden", _import_competitor_cls("competitors.competitor_caaaden", "CaaadenCompetitor"))
-
+    ("caaaden", _import_competitor_cls("competitors.competitor_caaaden", "CaaadenCompetitor")),
 ]
 
 
@@ -97,9 +104,10 @@ def main() -> None:
     os.makedirs(results_dir, exist_ok=True)
 
     print("=" * 60)
-    print("Dongimon Battle Royale ELO — mode=team")
+    print("Dongimon Battle Royale ELO — mode=team (battle policy neutralized)")
     print(f"  seed={args.seed}, n_matches={args.n_matches}, n_battles={args.n_battles}")
     print(f"  players: {', '.join(player_names)}")
+    print("  battle policy: GreedyBattlePolicy (ALL competitors)")
     print(f"  total matchups: {total_matchups} ({args.n_matches} rounds x {n_players * (n_players - 1) // 2} pairs)")
     print(f"  fitness_mode={args.fitness_mode}, selection_mode={args.selection_mode}")
     print("=" * 60)
@@ -116,15 +124,11 @@ def main() -> None:
                 p1_cls: Any = _PLAYER_ROSTER[i][1]
                 p2_cls: Any = _PLAYER_ROSTER[j][1]
 
-                if p1_name == "Dongimon":
-                    p1_cm = CompetitorManager(DongimonCompetitor(custom_weights=weights_dict))
-                else:
-                    p1_cm = CompetitorManager(p1_cls())
+                p1_inner = DongimonCompetitor(custom_weights=weights_dict) if p1_name == "Dongimon" else p1_cls()
+                p1_cm = CompetitorManager(GreedyBattleWrapper(p1_inner))
 
-                if p2_name == "Dongimon":
-                    p2_cm = CompetitorManager(DongimonCompetitor(custom_weights=weights_dict))
-                else:
-                    p2_cm = CompetitorManager(p2_cls())
+                p2_inner = DongimonCompetitor(custom_weights=weights_dict) if p2_name == "Dongimon" else p2_cls()
+                p2_cm = CompetitorManager(GreedyBattleWrapper(p2_inner))
 
                 matchup_seed = round_seed + pair_idx * 100
                 np.random.seed(matchup_seed)
@@ -154,7 +158,7 @@ def main() -> None:
     print("Final ELO Standings")
     print("=" * 60)
     for rank, (name, elo) in enumerate(rankings, 1):
-        marker = "  ← Dongimon" if name == "Dongimon" else ""
+        marker = "  <-- Dongimon" if name == "Dongimon" else ""
         print(f"  {rank}. {name:<20} {elo:>8.1f}{marker}")
     print("=" * 60)
 
@@ -164,7 +168,8 @@ def main() -> None:
     results_path = os.path.join(results_dir, f"elo_team_{timestamp}.json")
 
     output = {
-        "mode": "team",
+        "mode": "team_greedy_battle",
+        "description": "Battle policy neutralized (all Greedy). ELO reflects teambuild+selection only.",
         "seed": args.seed,
         "n_matches": args.n_matches,
         "n_battles": args.n_battles,
@@ -172,6 +177,7 @@ def main() -> None:
         "initial_elo": INITIAL_ELO,
         "tag": args.tag,
         "players": player_names,
+        "battle_policy": "GreedyBattlePolicy (uniform)",
         "fitness_mode": args.fitness_mode,
         "selection_mode": args.selection_mode,
         "history": history,
