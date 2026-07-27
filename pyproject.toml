@@ -26,6 +26,8 @@ dev = [
     "gymnasium>=1.0",
     "numpy>=2.2",
     "optuna>=3.6",
+    "scipy>=1.12",
+    "xgboost>=2.0",
 ]
 
 [tool.ruff]
