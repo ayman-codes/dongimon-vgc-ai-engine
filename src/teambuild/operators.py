@@ -137,10 +137,11 @@ def _build_type_coverage_matrix(
     pool_species: list[Any],
     viability_scores: dict[Any, float],
 ) -> np.ndarray:
-    """Build a 19xN matrix of type-coverage damage proxies.
+    """Build a 19xN matrix of offensive type-coverage damage proxies.
 
-    Each cell (type_i, species_j) estimates how well species_j hits type_i,
-    combining type effectiveness with raw species power.
+    Each cell (type_i, species_j) estimates how well species_j hits a
+    hypothetical Pokemon of type_i, combining the species' best move of
+    each attacking type with type effectiveness and raw species power.
 
     Args:
         pool_species: List of species.
@@ -152,19 +153,36 @@ def _build_type_coverage_matrix(
     n = len(pool_species)
     matrix = np.zeros((N_TYPES + 1, n), dtype=np.float32)
 
+    phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
+    spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
+
     for j, species in enumerate(pool_species):
         power = max(viability_scores.get(species, 0), 0.001)
-        spec_types = [vgc2_type_to_name(t.value) for t in species.types]
-        for i, atk_type in enumerate(VGC2_TYPE_ORDER):
-            atk_name = vgc2_type_to_name(atk_type.value)
-            best_eff = 0.0
-            for move in species.moves:
-                if move.base_power <= 0:
-                    continue
-                eff = type_effectiveness(atk_name, spec_types)
-                if eff > best_eff:
-                    best_eff = eff
-            matrix[i, j] = best_eff * power
+        base = species.base_stats
+        atk_stat = base[Stat.ATTACK]
+        spa_stat = base[Stat.SPECIAL_ATTACK]
+
+        for move in species.moves:
+            if move.base_power <= 0:
+                continue
+            acc = move.accuracy if move.accuracy is not None else 1.0
+            stab = 1.5 if move.pkm_type in species.types else 1.0
+
+            if move.category in phys_cats:
+                raw = acc * move.base_power * atk_stat * stab
+            elif move.category in spec_cats:
+                raw = acc * move.base_power * spa_stat * stab
+            else:
+                continue
+
+            move_type_name = _type_name(move.pkm_type)
+            for i, def_type in enumerate(TYPE_NAMES):
+                eff = type_effectiveness(move_type_name, [def_type])
+                dmg = raw * eff
+                if dmg > matrix[i, j]:
+                    matrix[i, j] = dmg
+
+        matrix[N_TYPES, j] = power
 
     return matrix
 
@@ -395,6 +413,8 @@ def _weighted_pool(
 
     Lower-viability species are given higher weight during mutation
     (to encourage exploration), inverse of the selection weighting.
+    Scores are normalised to [0, 1] before inversion so the weighting
+    is meaningful regardless of the absolute score magnitude.
 
     Args:
         indices: Candidate indices.
@@ -404,10 +424,15 @@ def _weighted_pool(
     Returns:
         List of indices with lower-viability species appearing multiple times.
     """
+    raw_scores = [max(viability_scores.get(pool_species[i], 0), 0.001) for i in indices]
+    max_score = max(raw_scores) if raw_scores else 1.0
+    min_score = min(raw_scores) if raw_scores else 0.0
+    score_range = max_score - min_score if max_score > min_score else 1.0
+
     expanded = []
-    for i in indices:
-        score = max(viability_scores.get(pool_species[i], 0), 0.001)
-        weight = max(1, int(1.0 / score))
+    for i, raw in zip(indices, raw_scores, strict=True):
+        norm = (raw - min_score) / score_range
+        weight = max(1, int((1.1 - norm) * 5))
         expanded.extend([i] * min(weight, 5))
     return expanded if expanded else indices
 

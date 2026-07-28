@@ -79,7 +79,7 @@ class TeambuildConfig(BaseModel):
 
     hp_filter_min: int = Field(default=120, ge=0, le=255, description="Minimum base HP to keep species (0=disabled)")
     fitness_mode: str = Field(default="heuristic", description="Fitness mode: heuristic or model")
-    pruning_percentage: float = Field(default=0.3, ge=0.0, le=1.0, description="Roster pruning fraction")
+    pruning_percentage: float = Field(default=0.2, ge=0.0, le=1.0, description="Roster pruning fraction")
     normalization_sample_size: int = Field(default=800, ge=1, description="Sample size for global max estimation")
     debug: bool = Field(default=False, description="Enable CSV debug logging")
     enable_evolution: bool = Field(default=True, description="Run evolutionary algorithm")

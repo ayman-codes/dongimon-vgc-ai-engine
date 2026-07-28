@@ -467,12 +467,11 @@ def estimate_incoming_threat(
                 if pot_move.category == Category.OTHER or pot_move.base_power == 0:
                     continue
 
-                if pot_move.pkm_type not in opp_pkm.types:
-                    continue
-
                 bp = float(pot_move.base_power)
                 stab = STAB_MULTIPLIER if pot_move.pkm_type in opp_pkm.types else 1.0
                 eff = _get_type_eff_string(pot_move.pkm_type, my_pokemon.types)
+                if stab < STAB_MULTIPLIER and eff < TYPE_EFF_SUPER:
+                    continue
                 proxy = bp * (eff * THREAT_PROXY_SCALE) * stab * pot_move.accuracy
                 candidates.append({"move": pot_move, "score": proxy})
 

@@ -8,8 +8,10 @@ opponent builds.
 import itertools
 from typing import Any
 
+from numpy.random import default_rng
 from vgc2.battle_engine import BattleEngine, BattleRuleParam
 from vgc2.battle_engine.game_state import State
+from vgc2.battle_engine.modifiers import Stat
 from vgc2.battle_engine.team import BattlingTeam, Team
 from vgc2.battle_engine.view import PokemonView, StateView, TeamView
 
@@ -83,13 +85,19 @@ def run_sub_tournament(
         my_battling_team = BattlingTeam(active=my_pair_pkm, reserve=my_reserve)
 
         opp_predicted_pair = [opp_build_a, opp_build_b]
-        opp_battling_team = BattlingTeam(active=opp_predicted_pair, reserve=[])
+        opp_reserve = _pick_opp_reserve(predicted_builds_dict, opp_view_pair)
+        opp_battling_team = BattlingTeam(active=opp_predicted_pair, reserve=opp_reserve)
 
         initial_state = State((my_battling_team, opp_battling_team))
-        engine = BattleEngine(initial_state)
+        rng = default_rng(sub_battles)
+        rng_tuple = ((rng, rng), (rng, rng))
+        engine = BattleEngine(
+            initial_state, acc_rng=rng_tuple, eff_rng=rng_tuple, sta_rng=rng_tuple
+        )
 
         dummy_my_view = TeamView(my_full_team)
-        dummy_opp_view = TeamView(Team(members=opp_predicted_pair))
+        dummy_opp_team = Team(members=opp_predicted_pair + opp_reserve)
+        dummy_opp_view = TeamView(dummy_opp_team)
 
         while not engine.finished():
             state_view_p0 = StateView(engine.state, 0, (dummy_my_view, dummy_opp_view))
@@ -105,3 +113,35 @@ def run_sub_tournament(
         sub_battles += 1
 
     return sub_wins / sub_battles if sub_battles > 0 else 0.0
+
+
+def _pick_opp_reserve(
+    predicted_builds_dict: dict[Any, list[Any]],
+    opp_view_pair: tuple[PokemonView, ...],
+) -> list[Any]:
+    """Select up to 2 reserve Pokemon for the opponent from non-active views.
+
+    Picks the best predicted build from each opponent view not in the
+    active pair, ranked by bulk (sum of defensive stats).
+
+    Args:
+        predicted_builds_dict: Dict mapping PokemonView to predicted builds.
+        opp_view_pair: The two active opponent views (excluded from reserve).
+
+    Returns:
+        List of up to 2 Pokemon for the opponent reserve.
+    """
+    active_set = {id(v) for v in opp_view_pair}
+    candidates = []
+    for view, builds in predicted_builds_dict.items():
+        if id(view) in active_set or not builds:
+            continue
+        best = builds[0]
+        if best.moves:
+            candidates.append(best)
+
+    candidates.sort(
+        key=lambda p: p.stats[Stat.MAX_HP] + p.stats[Stat.DEFENSE] + p.stats[Stat.SPECIAL_DEFENSE],
+        reverse=True,
+    )
+    return candidates[:2]

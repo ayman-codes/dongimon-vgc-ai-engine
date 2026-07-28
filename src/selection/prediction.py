@@ -225,14 +225,14 @@ def _calculate_utility_score(
         opp_nerf = _field_effect_swing(Type.FIRE, 0.5, all_opp_species_views)
         my_gain = _field_effect_swing(Type.WATER, 1.5, my_team_members)
         my_nerf = _field_effect_swing(Type.FIRE, 0.5, my_team_members)
-        score += (opp_gain + my_nerf) - (my_gain + opp_nerf)
+        score += (my_gain + opp_nerf) - (opp_gain + my_nerf)
 
     elif move.weather_start == Weather.SUN:
         opp_gain = _field_effect_swing(Type.FIRE, 1.5, all_opp_species_views)
         opp_nerf = _field_effect_swing(Type.WATER, 0.5, all_opp_species_views)
         my_gain = _field_effect_swing(Type.FIRE, 1.5, my_team_members)
         my_nerf = _field_effect_swing(Type.WATER, 0.5, my_team_members)
-        score += (opp_gain + my_nerf) - (my_gain + opp_nerf)
+        score += (my_gain + opp_nerf) - (opp_gain + my_nerf)
 
     elif move.weather_start == Weather.SAND:
         non_immune = sum(
@@ -293,7 +293,10 @@ def predict_opponent_builds(
 ) -> list[Any]:
     """Predict likely competitive builds for a single opponent Pokemon.
 
-    Runs moveset prediction then archetype build generation.
+    Runs moveset prediction then archetype build generation. Produces
+    builds from both the primary (top-scored) moveset and a utility
+    variant that swaps in the best non-damaging move, covering both
+    all-out attacker and support-oriented possibilities.
 
     Args:
         pokemon_view: The opponent's Pokemon as seen at Team Preview.
@@ -311,4 +314,83 @@ def predict_opponent_builds(
     predicted_moveset = predict_moveset(species, my_full_team, all_opp_views, params)
     archetype_builds = create_archetype_builds(species, predicted_moveset)
 
-    return [build for _, build in archetype_builds]
+    builds = [build for _, build in archetype_builds]
+
+    utility_variant = _deduce_utility_variant(species, predicted_moveset, my_full_team, all_opp_views, params)
+    if utility_variant:
+        variant_builds = create_archetype_builds(species, utility_variant)
+        builds.extend(build for _, build in variant_builds)
+
+    return builds[:4]
+
+
+def _deduce_utility_variant(
+    species: PokemonSpecies,
+    primary_moveset: list[Any],
+    my_full_team: Team,
+    all_opp_views: list[PokemonView],
+    params: BattleRuleParam,
+) -> list[Any] | None:
+    """Deduce an alternative moveset that includes the best utility move.
+
+    If the primary predicted moveset is all damaging moves, finds the
+    highest-scoring utility move from the species movepool and swaps it
+    in for the weakest damaging move. Returns None if no meaningful
+    utility alternative exists.
+
+    Args:
+        species: The Pokemon species.
+        primary_moveset: The top-4 predicted moves (damage-optimized).
+        my_full_team: Our full team of 6.
+        all_opp_views: All opponent Pokemon views.
+        params: Battle rule parameters.
+
+    Returns:
+        Alternative 4-move list with a utility move, or None.
+    """
+    if len(primary_moveset) < 4:
+        return None
+
+    has_utility = any(
+        m.base_power == 0
+        and (m.protect or m.status != Status.NONE or m.heal > 0 or m.toggle_tailwind or m.toggle_trickroom)
+        for m in primary_moveset
+    )
+    if has_utility:
+        return None
+
+    primary_set = {id(m) for m in primary_moveset}
+    best_utility_move = None
+    best_utility_score = 0.0
+
+    for move in species.moves:
+        if id(move) in primary_set:
+            continue
+        if move.base_power > 0:
+            continue
+        if not (
+            move.protect
+            or move.status != Status.NONE
+            or move.heal > 0
+            or move.toggle_tailwind
+            or move.toggle_trickroom
+            or move.toggle_reflect
+            or move.toggle_lightscreen
+        ):
+            continue
+        score = _calculate_utility_score(move, species, my_full_team, all_opp_views, params)
+        if score > best_utility_score:
+            best_utility_score = score
+            best_utility_move = move
+
+    if best_utility_move is None or best_utility_score <= 0:
+        return None
+
+    damaging_in_primary = [m for m in primary_moveset if m.base_power > 0]
+    if not damaging_in_primary:
+        return None
+
+    weakest = min(damaging_in_primary, key=lambda m: m.base_power)
+    variant = [m for m in primary_moveset if m is not weakest]
+    variant.append(best_utility_move)
+    return variant

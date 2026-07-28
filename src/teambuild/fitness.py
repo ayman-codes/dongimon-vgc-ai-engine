@@ -66,6 +66,8 @@ def get_optimal_archetype(
     roster: list[Any],
     global_max_scores: dict[str, float],
     params: BattleRuleParam,
+    generic_cache: dict[Any, Any] | None = None,
+    coeff_table: dict[Any, list[tuple[float, int]]] | None = None,
 ) -> Pokemon | None:
     """Determine the single best competitive build for a species.
 
@@ -78,6 +80,8 @@ def get_optimal_archetype(
         roster: Full roster for context.
         global_max_scores: Dict of maximum score values for normalization.
         params: Battle rule parameters.
+        generic_cache: Optional precomputed generic builds per species.
+        coeff_table: Optional precomputed damage coefficients for fast scoring.
 
     Returns:
         A single optimized Pokemon object, or a generic build on failure.
@@ -90,7 +94,9 @@ def get_optimal_archetype(
 
     evaluations = []
     for archetype_name, temp_build in potential_builds:
-        optimal_moves, all_scores = get_role_aware_moveset(temp_build, archetype_name, roster, params)
+        optimal_moves, all_scores = get_role_aware_moveset(
+            temp_build, archetype_name, roster, params, generic_cache, coeff_table
+        )
 
         total_damage = sum(all_scores[m]["damage"] for m in optimal_moves)
         total_utility = sum(all_scores[m]["utility"] for m in optimal_moves)

@@ -218,12 +218,13 @@ def _pick_moves(species: PokemonSpecies) -> list[int]:
     scored.sort(key=lambda x: -x[0])
 
     selected: list[Any] = []
-    seen_damage_types = set()
+    seen_damage_types: dict[Any, int] = {}
     for _score, move in scored:
         if move.base_power > 0:
-            if move.pkm_type in seen_damage_types and any(m.base_power > 0 for m in selected):
+            type_count = seen_damage_types.get(move.pkm_type, 0)
+            if type_count >= 2 and any(m.base_power > 0 for m in selected):
                 continue
-            seen_damage_types.add(move.pkm_type)
+            seen_damage_types[move.pkm_type] = type_count + 1
         selected.append(move)
         if len(selected) == 4:
             break

@@ -83,11 +83,117 @@ def calculate_damage_score(
     return total_normalized / opp_count
 
 
+def build_coefficient_table(
+    species: Any,
+    roster: list[Any],
+    generic_cache: dict[Any, Pokemon],
+    params: BattleRuleParam,
+) -> dict[Any, list[tuple[float, int]]]:
+    """Precompute per-move damage coefficients against the full roster.
+
+    For each damaging move, computes a coefficient such that
+    damage ≈ int(coeff × build_atk_stat) for any build of this species.
+    The coefficient absorbs base power, defender defense, type effectiveness,
+    and STAB into a single float.
+
+    Args:
+        species: The attacker species (for STAB determination).
+        roster: Full roster of defender species.
+        generic_cache: Precomputed generic builds keyed by species.
+        params: Battle rule parameters.
+
+    Returns:
+        Dict mapping Move to list of (coefficient, defender_max_hp) tuples.
+    """
+    phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
+    spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
+    level_factor = int(int((2 * 50) / 5) + 2)
+    stab_mult = params.STAB_MODIFIER
+    type_arr = params.DAMAGE_MULTIPLICATION_ARRAY
+
+    table: dict[Any, list[tuple[float, int]]] = {}
+    for move in species.moves:
+        if move.base_power <= 0:
+            continue
+
+        is_phys = move.category in phys_cats
+        is_spec = move.category in spec_cats
+        if not is_phys and not is_spec:
+            continue
+
+        def_stat_idx = Stat.DEFENSE if is_phys else Stat.SPECIAL_DEFENSE
+        move_type = move.pkm_type
+        has_stab = move_type in species.types
+        stab = stab_mult if has_stab else 1.0
+
+        coeffs: list[tuple[float, int]] = []
+        for defender_species in roster:
+            if defender_species is species:
+                continue
+            defender_build = generic_cache.get(defender_species)
+            if defender_build is None:
+                continue
+
+            defender_def = defender_build.stats[def_stat_idx]
+            if defender_def <= 0:
+                continue
+
+            type_eff = 1.0
+            for dt in defender_species.types:
+                type_eff *= type_arr[move_type][dt]
+
+            base = level_factor * move.base_power
+            coeff = (base / defender_def) * type_eff * stab
+            max_hp = defender_build.stats[Stat.MAX_HP]
+            coeffs.append((coeff, max_hp))
+
+        table[move] = coeffs
+
+    return table
+
+
+def calculate_damage_score_fast(
+    build: Pokemon,
+    coeff_table: dict[Any, list[tuple[float, int]]],
+) -> dict[Any, float]:
+    """Score all damaging moves for a build using a precomputed coefficient table.
+
+    Pure arithmetic per move — no vgc2 object construction or engine calls.
+    Approximates the full damage formula with less than 1 HP error per
+    calculation due to integer floor reordering.
+
+    Args:
+        build: The Pokemon build whose ATK/SpA stats scale the coefficients.
+        coeff_table: Output of build_coefficient_table for this build's species.
+
+    Returns:
+        Dict mapping each damaging Move to its average normalized damage score.
+    """
+    scores: dict[Any, float] = {}
+    for move, coeffs in coeff_table.items():
+        if not coeffs:
+            scores[move] = 0.0
+            continue
+
+        is_phys = move.category in (Category.PHYSICAL, Category.PHYSICAL.value)
+        atk_stat = build.stats[Stat.ATTACK] if is_phys else build.stats[Stat.SPECIAL_ATTACK]
+
+        total = 0.0
+        for coeff, max_hp in coeffs:
+            dmg = int(coeff * atk_stat / 50) + 2
+            total += (dmg / max_hp) * 100.0 if max_hp > 0 else 0.0
+
+        scores[move] = total / len(coeffs)
+
+    return scores
+
+
 def calculate_utility_score(
     attacker_build: Pokemon,
     move: Any,
     roster: list[Any],
     params: BattleRuleParam,
+    generic_cache: dict[Any, Pokemon] | None = None,
 ) -> float:
     """Score a non-damaging move by its utility value against the full roster.
 
@@ -106,11 +212,12 @@ def calculate_utility_score(
     if not roster:
         return 0.0
 
-    generic_cache: dict[Any, Any] = {}
-    for s in roster:
-        b = create_generic_build_for_species(s)
-        if b is not None:
-            generic_cache[s] = b
+    if generic_cache is None:
+        generic_cache = {}
+        for s in roster:
+            b = create_generic_build_for_species(s)
+            if b is not None:
+                generic_cache[s] = b
 
     hazard_removal_names = {"rapid spin", "defog", "mortal spin", "tidy up"}
 

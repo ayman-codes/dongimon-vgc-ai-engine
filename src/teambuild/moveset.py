@@ -15,7 +15,11 @@ from vgc2.battle_engine.team import BattlingTeam
 
 from src.shared.archetypes import create_generic_build_for_species
 from src.shared.cache import cached_calculate_damage as calculate_damage
-from src.teambuild.scoring import calculate_damage_score, calculate_utility_score
+from src.teambuild.scoring import (
+    calculate_damage_score,
+    calculate_damage_score_fast,
+    calculate_utility_score,
+)
 
 
 def get_role_aware_moveset(
@@ -23,6 +27,8 @@ def get_role_aware_moveset(
     archetype_name: str,
     roster: list[Any],
     params: BattleRuleParam,
+    generic_cache: dict[Any, Any] | None = None,
+    coeff_table: dict[Any, list[tuple[float, int]]] | None = None,
 ) -> tuple[list[Any], dict[Any, Any]]:
     """Select the best 4 moves for a species given a specific role.
 
@@ -35,6 +41,8 @@ def get_role_aware_moveset(
         archetype_name: Name of the archetype role (e.g. "Fast Physical Sweeper").
         roster: Full roster of PokemonSpecies for context.
         params: Battle rule parameters.
+        generic_cache: Optional precomputed generic builds per species.
+        coeff_table: Optional precomputed damage coefficients for fast scoring.
 
     Returns:
         Tuple of (list of 4 Move objects, dict mapping each move to its scores).
@@ -42,16 +50,23 @@ def get_role_aware_moveset(
     if not attacker_build.species.moves:
         return [], {}
 
+    fast_damage: dict[Any, float] = {}
+    if coeff_table is not None:
+        fast_damage = calculate_damage_score_fast(attacker_build, coeff_table)
+
     move_scores: dict[Any, dict[str, float]] = {
         move: {"damage": 0.0, "utility": 0.0, "stat_syn": 0.0, "speed_syn": 0.0}
         for move in attacker_build.species.moves
     }
 
     for move in attacker_build.species.moves:
-        damage_score = calculate_damage_score(attacker_build, move, roster, None, params)
-        utility_score = calculate_utility_score(attacker_build, move, roster, params)
-        stat_syn = _calculate_stat_boost_synergy(attacker_build, move, roster, None, params)
-        speed_syn = _calculate_speed_control_synergy(attacker_build, move, roster, None, params)
+        if coeff_table is not None:
+            damage_score = fast_damage.get(move, 0.0)
+        else:
+            damage_score = calculate_damage_score(attacker_build, move, roster, generic_cache, params)
+        utility_score = calculate_utility_score(attacker_build, move, roster, params, generic_cache)
+        stat_syn = _calculate_stat_boost_synergy(attacker_build, move, roster, generic_cache, params)
+        speed_syn = _calculate_speed_control_synergy(attacker_build, move, roster, generic_cache, params)
 
         move_scores[move]["damage"] = damage_score
         move_scores[move]["utility"] = utility_score

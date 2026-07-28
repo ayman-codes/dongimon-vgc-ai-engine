@@ -33,7 +33,7 @@ from vgc2.util.generator import gen_team
 from src.battle.policy import DongimonBattlePolicy
 from src.tuning.elo_rating import run_dongimon_elo_epoch
 
-N_TRIALS = 1500
+N_TRIALS = 1000
 N_BATTLES = 15
 N_EPOCHS = 10
 ELO_K = 32.0

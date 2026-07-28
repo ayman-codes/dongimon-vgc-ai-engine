@@ -80,7 +80,10 @@ def run_battle_royale(
             for _ in range(n_battles):
                 battle_teams = get_battle_teams(team_a, team_b, 2, 2)
                 state = State(battle_teams)
-                engine = BattleEngine(state, rng=battle_rng)
+                rng_tuple = ((battle_rng, battle_rng), (battle_rng, battle_rng))
+                engine = BattleEngine(
+                    state, acc_rng=rng_tuple, eff_rng=rng_tuple, sta_rng=rng_tuple
+                )
 
                 view_a = TeamView(team_a)
                 view_b = TeamView(team_b)
