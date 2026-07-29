@@ -39,4 +39,4 @@ mlflow.db
 # optuna
 optuna_study.db
 __pycache__/competitor.cpython-314.pyc
-data/
+/data/
