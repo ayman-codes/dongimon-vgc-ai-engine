@@ -55,7 +55,7 @@ def main() -> None:
     params = BattleRuleParam()
 
     print("Generating shared team...", end=" ", flush=True)
-    team = gen_team(6, 4, rng)
+    team = gen_team(4, 4, rng)
     view = TeamView(team)
     print("done")
 

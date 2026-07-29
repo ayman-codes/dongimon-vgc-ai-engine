@@ -9,7 +9,7 @@ from typing import Any
 
 from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.game_state import State
-from vgc2.battle_engine.modifiers import Category, Stat
+from vgc2.battle_engine.modifiers import Category, Stat, Status, Terrain, Weather
 from vgc2.battle_engine.pokemon import BattlingPokemon, Pokemon
 from vgc2.battle_engine.team import BattlingTeam
 
@@ -64,8 +64,15 @@ def get_role_aware_moveset(
             damage_score = fast_damage.get(move, 0.0)
         else:
             damage_score = calculate_damage_score(attacker_build, move, roster, generic_cache, params)
-        utility_score = calculate_utility_score(attacker_build, move, roster, params, generic_cache)
-        stat_syn = _calculate_stat_boost_synergy(attacker_build, move, roster, generic_cache, params)
+
+        if _has_utility_potential(move):
+            utility_score = calculate_utility_score(attacker_build, move, roster, params, generic_cache)
+        else:
+            utility_score = 0.0
+
+        stat_syn = _calculate_stat_boost_synergy(
+            attacker_build, move, roster, generic_cache, params, coeff_table
+        )
         speed_syn = _calculate_speed_control_synergy(attacker_build, move, roster, generic_cache, params)
 
         move_scores[move]["damage"] = damage_score
@@ -73,10 +80,12 @@ def get_role_aware_moveset(
         move_scores[move]["stat_syn"] = stat_syn
         move_scores[move]["speed_syn"] = speed_syn
 
-    max_damage = max((s.get("damage", 0) for s in move_scores.values()), default=1)
-    max_utility = max((s.get("utility", 0) for s in move_scores.values()), default=1)
-    max_stat_syn = max((s.get("stat_syn", 0) for s in move_scores.values()), default=1)
-    max_speed_syn = max((s.get("speed_syn", 0) for s in move_scores.values()), default=1)
+    # Floor to 1.0: when all moves score 0 on a dimension the dimension
+    # is uninformative and should contribute 0 to differentiation (0/1 = 0).
+    max_damage = max((s.get("damage", 0) for s in move_scores.values()), default=0) or 1.0
+    max_utility = max((s.get("utility", 0) for s in move_scores.values()), default=0) or 1.0
+    max_stat_syn = max((s.get("stat_syn", 0) for s in move_scores.values()), default=0) or 1.0
+    max_speed_syn = max((s.get("speed_syn", 0) for s in move_scores.values()), default=0) or 1.0
 
     def get_final_score(move: Any) -> float:
         s = move_scores.get(move, {})
@@ -92,17 +101,49 @@ def get_role_aware_moveset(
     return top_4, move_scores
 
 
+def _has_utility_potential(move: Any) -> bool:
+    """Check whether a move can produce a non-zero utility score.
+
+    Pure damaging moves with no secondary utility flags always score 0
+    in calculate_utility_score. Skipping the call avoids expensive
+    State/BattlingPokemon object construction for ~60-70% of moves.
+
+    Args:
+        move: The Move to check.
+
+    Returns:
+        True if the move has any utility-relevant property.
+    """
+    if move.heal > 0:
+        return True
+    if move.protect:
+        return True
+    if move.toggle_reflect or move.toggle_lightscreen:
+        return True
+    if move.status != Status.NONE:
+        return True
+    if move.weather_start != Weather.CLEAR or move.field_start != Terrain.NONE:
+        return True
+    if move.toggle_tailwind or move.toggle_trickroom:
+        return True
+    if hasattr(move, "hazard") and move.hazard:
+        return True
+    return move.name.lower() in {"rapid spin", "defog", "mortal spin", "tidy up"}
+
+
 def _calculate_stat_boost_synergy(
     attacker_build: Pokemon,
     move: Any,
     roster: list[Any],
     optimal_builds_cache: dict[Any, Any] | None,
     params: BattleRuleParam,
+    coeff_table: dict[Any, list[tuple[float, int]]] | None = None,
 ) -> float:
     """Calculate the synergy score for a self-targeting stat-boosting move.
 
     Measures the net damage increase the boost provides to the user's
-    best damaging moves from its entire species movepool.
+    best damaging moves from its entire species movepool. Uses the fast
+    coefficient-table path when available to avoid State object creation.
 
     Args:
         attacker_build: The Pokemon using the move.
@@ -110,6 +151,7 @@ def _calculate_stat_boost_synergy(
         roster: Full roster for context.
         optimal_builds_cache: Optional cache of optimal builds per species.
         params: Battle rule parameters.
+        coeff_table: Optional precomputed damage coefficients for fast scoring.
 
     Returns:
         Float synergy score.
@@ -123,21 +165,34 @@ def _calculate_stat_boost_synergy(
     potential_moves = attacker_build.species.moves
     relevant_damaging = [m for m in potential_moves if m.category == relevant_cat and m.base_power > 0]
 
-    top_moves = sorted(
-        relevant_damaging,
-        key=lambda m: calculate_damage_score(attacker_build, m, roster, optimal_builds_cache, params),
-        reverse=True,
-    )[:2]
-
-    if not top_moves:
+    if not relevant_damaging:
         return 0.0
 
-    total_increase = 0.0
-    for move_obj in top_moves:
-        dmg_before = calculate_damage_score(attacker_build, move_obj, roster, optimal_builds_cache, params)
+    if coeff_table is not None:
+        base_scores = calculate_damage_score_fast(attacker_build, coeff_table)
         boosted_build = apply_temp_boosts(attacker_build, move.boosts)
-        dmg_after = calculate_damage_score(boosted_build, move_obj, roster, optimal_builds_cache, params)
-        total_increase += dmg_after - dmg_before
+        boosted_scores = calculate_damage_score_fast(boosted_build, coeff_table)
+
+        top_moves = sorted(relevant_damaging, key=lambda m: base_scores.get(m, 0.0), reverse=True)[:2]
+        total_increase = sum(
+            boosted_scores.get(m, 0.0) - base_scores.get(m, 0.0) for m in top_moves
+        )
+    else:
+        top_moves = sorted(
+            relevant_damaging,
+            key=lambda m: calculate_damage_score(attacker_build, m, roster, optimal_builds_cache, params),
+            reverse=True,
+        )[:2]
+
+        if not top_moves:
+            return 0.0
+
+        total_increase = 0.0
+        for move_obj in top_moves:
+            dmg_before = calculate_damage_score(attacker_build, move_obj, roster, optimal_builds_cache, params)
+            boosted_build = apply_temp_boosts(attacker_build, move.boosts)
+            dmg_after = calculate_damage_score(boosted_build, move_obj, roster, optimal_builds_cache, params)
+            total_increase += dmg_after - dmg_before
 
     return total_increase / len(top_moves) if top_moves else 0.0
 

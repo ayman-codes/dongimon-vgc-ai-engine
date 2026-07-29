@@ -92,12 +92,18 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                 generic_cache[s] = b
 
         roster_list = list(roster)
-        global_max_scores = self._compute_global_max_scores(pool_species, roster_list, generic_cache)
+        global_max_scores, coeff_cache = self._compute_global_max_scores(
+            pool_species, roster_list, generic_cache
+        )
 
-        upgrade_cap = max(max_team_size, len(pool_species) // 2)
+        upgrade_cap = max(max_team_size, len(pool_species) // 4)
         for species in pool_species[:upgrade_cap]:
             try:
-                coeff_table = build_coefficient_table(species, roster_list, generic_cache, self.params)
+                coeff_table = coeff_cache.get(species)
+                if coeff_table is None:
+                    coeff_table = build_coefficient_table(
+                        species, roster_list, generic_cache, self.params
+                    )
                 upgraded = get_optimal_archetype(
                     species, roster_list, global_max_scores, self.params, generic_cache, coeff_table
                 )
@@ -178,12 +184,14 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         pool_species: list[Any],
         roster_list: list[Any],
         generic_cache: dict[Any, Any],
-    ) -> dict[str, float]:
+    ) -> tuple[dict[str, float], dict[Any, Any]]:
         """Compute normalization maxima by sampling top pool species.
 
         Evaluates archetype builds for a bounded sample of species to
         determine the maximum achievable scores for each fitness component.
         These maxima are used to normalize scores in get_optimal_archetype.
+        Also caches the coefficient tables built during sampling for reuse
+        in the upgrade loop, avoiding redundant O(n) damage precomputation.
 
         Args:
             pool_species: Species pool sorted by viability (best first).
@@ -191,9 +199,9 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
             generic_cache: Precomputed generic builds per species.
 
         Returns:
-            Dict of maximum score values for normalization.
+            Tuple of (maxima dict, coeff_table cache dict).
         """
-        sample_size = min(15, len(pool_species))
+        sample_size = min(10, len(pool_species))
         sample = pool_species[:sample_size]
 
         max_stat = 1.0
@@ -202,11 +210,13 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         max_stat_syn = 1.0
         max_speed_syn = 1.0
         max_speed_stat = 1.0
+        coeff_cache: dict[Any, Any] = {}
 
         for species in sample:
             placeholder_moves = species.moves[:4] if species.moves else []
             archetype_builds = create_archetype_builds(species, placeholder_moves)
             coeff_table = build_coefficient_table(species, roster_list, generic_cache, self.params)
+            coeff_cache[species] = coeff_table
             for _name, temp_build in archetype_builds:
                 stat_score = calculate_stat_compatibility(species, temp_build.evs)
                 if stat_score > max_stat:
@@ -235,11 +245,14 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                 except (RuntimeError, ValueError, IndexError, KeyError):
                     pass
 
-        return {
-            "max_stat": max_stat,
-            "max_dmg": max_dmg,
-            "max_util": max_util,
-            "max_stat_syn": max_stat_syn,
-            "max_speed_syn": max_speed_syn,
-            "max_speed_stat": max_speed_stat,
-        }
+        return (
+            {
+                "max_stat": max_stat,
+                "max_dmg": max_dmg,
+                "max_util": max_util,
+                "max_stat_syn": max_stat_syn,
+                "max_speed_syn": max_speed_syn,
+                "max_speed_stat": max_speed_stat,
+            },
+            coeff_cache,
+        )

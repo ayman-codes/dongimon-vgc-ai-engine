@@ -126,7 +126,7 @@ def _run_ga_with_fitness(
         evo_results = run_evolution(
             pool_species=pool_species,
             viability_scores=viability_scores,
-            team_size=6,
+            team_size=4,
             pop_size=pop_size,
             generations=generations,
             mutation_rate=0.10,
@@ -153,7 +153,7 @@ def _run_ga_with_fitness(
         return tqs_weight * t_score + (1.0 - tqs_weight) * h_score
 
     population: list[list[int]] = []
-    team_size = 6
+    team_size = 4
     n_pool = len(pool_species)
 
     init_rng = np.random.default_rng(rng.integers(0, 2**31))

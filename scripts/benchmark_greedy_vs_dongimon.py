@@ -105,7 +105,7 @@ def main() -> None:
         round_seed = args.seed + r_idx * 1000
         team_rng = np.random.default_rng(round_seed)
 
-        base_team = gen_team(6, 4, team_rng)
+        base_team = gen_team(4, 4, team_rng)
         base_view = TeamView(base_team)
 
         comp = DongimonCompetitor(custom_weights=weights_dict)

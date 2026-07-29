@@ -50,7 +50,7 @@ def main() -> None:
     for t_idx in range(args.n_teams):
         team_seed = args.seed + t_idx * 100
         team_rng = np.random.default_rng(team_seed)
-        team = gen_team(6, 4, team_rng)
+        team = gen_team(4, 4, team_rng)
         view = TeamView(team)
 
         for b_idx in range(args.n_battles):

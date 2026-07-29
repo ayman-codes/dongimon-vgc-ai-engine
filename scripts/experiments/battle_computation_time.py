@@ -43,7 +43,7 @@ def main() -> None:
     args = parser.parse_args()
 
     team_rng = np.random.default_rng(args.seed)
-    team = gen_team(6, 4, team_rng)
+    team = gen_team(4, 4, team_rng)
     view = TeamView(team)
     sel = BasicSelectionPolicy()
     params = BattleRuleParam()

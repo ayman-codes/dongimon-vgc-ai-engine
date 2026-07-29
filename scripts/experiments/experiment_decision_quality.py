@@ -216,8 +216,8 @@ def _run_mp_test(
     time_model_total = 0.0
 
     for scenario_idx in range(n_scenarios):
-        team_a = gen_team(6, 4, rng)
-        team_b = gen_team(6, 4, rng)
+        team_a = gen_team(4, 4, rng)
+        team_b = gen_team(4, 4, rng)
         opp_members = list(team_b.members[:4])
         scenario_seed = seed + scenario_idx * 10000
 
@@ -418,7 +418,7 @@ def _run_tqs_test(
     time_tqs_total = 0.0
 
     for scenario_idx in range(n_scenarios):
-        teams = [gen_team(6, 4, rng) for _ in range(10)]
+        teams = [gen_team(4, 4, rng) for _ in range(10)]
         scenario_seed = seed + scenario_idx * 20000
 
         t0 = time.perf_counter()

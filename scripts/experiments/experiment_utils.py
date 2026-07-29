@@ -179,7 +179,7 @@ def generate_stratified_teams(
 
     random_teams: list[Any] = []
     for _ in range(n_random):
-        random_teams.append(gen_team(6, 4, rng))
+        random_teams.append(gen_team(4, 4, rng))
     teams.extend(random_teams)
     labels.extend(["random"] * len(random_teams))
 
@@ -191,7 +191,7 @@ def generate_stratified_teams(
             evo_results = run_evolution(
                 pool_species=pool_species,
                 viability_scores=viability,
-                team_size=6,
+                team_size=4,
                 pop_size=50,
                 generations=10,
                 mutation_rate=0.10,
@@ -208,11 +208,11 @@ def generate_stratified_teams(
             if len(ga_teams) >= n_ga:
                 break
         while len(ga_teams) < n_ga:
-            ga_teams.append(gen_team(6, 4, rng))
+            ga_teams.append(gen_team(4, 4, rng))
     except Exception:
         print("[ERROR] GA evolution crashed:")
         traceback.print_exc()
-        ga_teams = [gen_team(6, 4, rng) for _ in range(n_ga)]
+        ga_teams = [gen_team(4, 4, rng) for _ in range(n_ga)]
         fallbacks += n_ga
     teams.extend(ga_teams)
     labels.extend(["ga"] * len(ga_teams))
@@ -223,7 +223,7 @@ def generate_stratified_teams(
         cov_results = seed_coverage_teams(
             pool_species=pool_species,
             viability_scores=viability,
-            team_size=6,
+            team_size=4,
             n_seeds=n_coverage,
             rng=cov_rng,
         )
@@ -237,11 +237,11 @@ def generate_stratified_teams(
                     f"[WARNING] Failed to build coverage team (indices {team_indices[:3]}...) — fallbacks={fallbacks}"
                 )
         while len(coverage_teams) < n_coverage:
-            coverage_teams.append(gen_team(6, 4, rng))
+            coverage_teams.append(gen_team(4, 4, rng))
     except Exception:
         print("[ERROR] Coverage team generation crashed:")
         traceback.print_exc()
-        coverage_teams = [gen_team(6, 4, rng) for _ in range(n_coverage)]
+        coverage_teams = [gen_team(4, 4, rng) for _ in range(n_coverage)]
         fallbacks += n_coverage
     teams.extend(coverage_teams)
     labels.extend(["coverage"] * len(coverage_teams))
@@ -307,7 +307,7 @@ def generate_ga_only_teams(
             evo_results = run_evolution(
                 pool_species=pool_species,
                 viability_scores=viability,
-                team_size=6,
+                team_size=4,
                 pop_size=pop_size,
                 generations=generations,
                 mutation_rate=0.10,
@@ -325,18 +325,18 @@ def generate_ga_only_teams(
             if len(ga_teams) >= n_ga:
                 break
         while len(ga_teams) < n_ga:
-            ga_teams.append(gen_team(6, 4, rng))
+            ga_teams.append(gen_team(4, 4, rng))
             fallbacks += 1
     except Exception:
         print("[ERROR] GA evolution crashed:")
         traceback.print_exc()
-        ga_teams = [gen_team(6, 4, rng) for _ in range(n_ga)]
+        ga_teams = [gen_team(4, 4, rng) for _ in range(n_ga)]
         fallbacks += n_ga
 
     teams.extend(ga_teams)
     labels.extend(["ga"] * len(ga_teams))
 
-    random_teams: list[Any] = [gen_team(6, 4, rng) for _ in range(n_random)]
+    random_teams: list[Any] = [gen_team(4, 4, rng) for _ in range(n_random)]
     teams.extend(random_teams)
     labels.extend(["random"] * len(random_teams))
 
