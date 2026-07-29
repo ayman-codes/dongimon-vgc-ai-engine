@@ -55,6 +55,48 @@ class SelectionConfig(BaseModel):
     max_team_size: int = Field(default=4, ge=1, le=6, description="Maximum team size to select")
 
 
+class SelectionSynergyWeights(BaseModel):
+    """Tunable weights for the analytical pair-synergy selection fast path.
+
+    Used when the team is already final size (pure ordering): the policy
+    skips the simulation pipeline and ranks the C(n, 2) candidate active
+    pairs by a weighted blend of an opponent-aware matchup term and four
+    intra-pair teamwork terms. All weights are non-negative; only their
+    relative magnitudes matter (Optuna normalizes them to sum to 1).
+
+    Attributes:
+        w_matchup: Opponent-aware damage matchup weight (avg/worst blend).
+        w_defense: Defensive complementarity weight (weakness coverage).
+        w_speed: Speed-control weight (initiative + speed spread).
+        w_role: Role/stat balance weight (phys+special, role mix).
+        w_coverage: Offensive type-coverage weight vs the opponent's types.
+        avg_weight: Fixed blend weight on the average opponent pair.
+        worst_weight: Fixed blend weight on the strongest opponent pair.
+    """
+
+    w_matchup: float = Field(default=0.40, ge=0.0, le=1.0, description="Opponent-aware matchup weight")
+    w_defense: float = Field(default=0.20, ge=0.0, le=1.0, description="Defensive complementarity weight")
+    w_speed: float = Field(default=0.15, ge=0.0, le=1.0, description="Speed control weight")
+    w_role: float = Field(default=0.10, ge=0.0, le=1.0, description="Role/stat balance weight")
+    w_coverage: float = Field(default=0.15, ge=0.0, le=1.0, description="Offensive coverage weight")
+    avg_weight: float = Field(default=0.6, ge=0.0, le=1.0, description="Blend weight on average opponent pair")
+    worst_weight: float = Field(default=0.4, ge=0.0, le=1.0, description="Blend weight on strongest opponent pair")
+
+    def synergy_dict(self) -> dict[str, float]:
+        """Return the five tunable term weights as a dict.
+
+        Returns:
+            Dict mapping term names to their values.
+        """
+        return {
+            "w_matchup": self.w_matchup,
+            "w_defense": self.w_defense,
+            "w_speed": self.w_speed,
+            "w_role": self.w_role,
+            "w_coverage": self.w_coverage,
+        }
+
+
 class TeambuildConfig(BaseModel):
     """Configuration for the HESF Team Build Policy.
 

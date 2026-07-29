@@ -47,7 +47,7 @@ Built on top of the `vgc2` simulation engine (v2.1.3)
 </tr>
 <tr>
 <td><strong>Hyperparameter Optimisation</strong></td>
-<td>Optuna Bayesian Optimisation (14-Weight Tuning), Sensitivity Analysis, Multi-Competitor Objective Maximisation, Study Persistence (SQLite), Resume Support</td>
+<td>Optuna Bayesian Optimisation (Battle 14-Weight, Teambuild 12-Weight, Selection 5-Weight), Sensitivity Analysis, Multi-Competitor Objective Maximisation, Study Persistence (SQLite), Resume Support, EC2 Parallel Studies</td>
 </tr>
 <tr>
 <td><strong>Software Engineering</strong></td>
@@ -87,7 +87,7 @@ Built on top of the `vgc2` simulation engine (v2.1.3)
 
 **Battle Policy** (`src/battle/`) -- Each turn, generates all legal actions (moves &times; targets + switches to reserves), scores them individually via `move_scoring.py`, then pairs actions across both active slots and evaluates **9 weighted synergy components**: base individual scores, survival impact, focus fire, target priority, off-def support, setup synergy, environmental synergy, and board position lookahead. Weights are loaded from a tuned `battle_weights.yaml` configuration.
 
-**Selection Policy** (`src/selection/`) -- At Team Preview, predicts opponent movesets using archetype-based damage/utility scoring, then evaluates all C(6,2) &times; C(6,2) pair matchups via sub-tournament simulation (vgc2 BattleEngine with GreedyBattlePolicy). Returns the top-ranked 4-Pokemon roster.
+**Selection Policy** (`src/selection/`) -- At Team Preview, two paths: (1) **Fast path** (team ≤ 4): analytical pair-synergy ranking of all C(n,2) active pairs using 4 teamwork terms (offensive coverage, defensive complementarity, speed control, role balance) blended with an opponent-aware matchup term — no simulation needed. (2) **Full path** (team > 4): predicts opponent movesets, pre-filters rosters via damage matrix, then runs sub-tournament simulations. Weights tuned via Optuna and stored in `selection_synergy.yaml`.
 
 **Team Build Policy** (`src/teambuild/`) -- Three-stage pipeline:
 1. **Heuristic Funnel** -- Creates optimal single builds per species (minimon-style role detection + STAB-weighted move selection), ranks by stat-based power proxy
@@ -115,7 +115,9 @@ uv run python scripts/benchmark.py --n-matches=5 --n-battles=25
 uv run python scripts/benchmark.py --full --n-matches=5 --n-battles=25
 
 # Optuna weight tuning (resumes from existing study)
-uv run python scripts/tune_weights.py
+uv run python scripts/tune_weights.py             # Battle policy (14 weights)
+uv run python scripts/tune_teambuild.py           # Teambuild (12 weights, default 400 trials)
+uv run python scripts/tune_selection.py           # Selection synergy (5 weights, default 300 trials)
 ```
 
 ---
@@ -135,10 +137,12 @@ dongimon/
 │   │   └── archetypes.py           #  Generate competitive builds per species
 │   │
 │   ├── config/                     # Configuration & constants
-│   │   ├── models.py               #  Pydantic models: BattleWeights, SelectionConfig, TeambuildConfig
+│   │   ├── models.py               #  Pydantic models: BattleWeights, SelectionConfig, TeambuildConfig, SelectionSynergyWeights
 │   │   ├── loader.py               #  YAML weight loader, config factories
 │   │   ├── constants.py            #  ~120 named constants (KO bonuses, thresholds, etc.)
-│   │   └── battle_weights.yaml     #  Tuned 14-weight vector from Optuna
+│   │   ├── battle_weights.yaml     #  Tuned 14-weight vector from Optuna
+│   │   ├── teambuild_weights.yaml  #  Tuned 12-weight teambuild vector (Optuna trial #192)
+│   │   └── selection_synergy.yaml  #  Tuned 5-weight selection fast path (Optuna trial #211)
 │   │
 │   ├── battle/                     # Turn-by-turn battle policy
 │   │   ├── policy.py               #  DongimonBattlePolicy (orchestrator)
@@ -146,7 +150,8 @@ dongimon/
 │   │   └── joint.py               #  Joint action pairing with 9 synergy components
 │   │
 │   ├── selection/                  # Team preview selection policy
-│   │   ├── policy.py               #  DongimonSelectionPolicy (pair-vs-pair tournament)
+│   │   ├── policy.py               #  DongimonSelectionPolicy (fast path + full pipeline)
+│   │   ├── pair_synergy.py         #  Analytical pair-synergy scorer (4 teamwork terms)
 │   │   ├── prediction.py           #  Opponent moveset prediction via damage/utility scoring
 │   │   └── tournament.py           #  Sub-tournament simulation with vgc2 BattleEngine
 │   │
@@ -171,7 +176,9 @@ dongimon/
 │   ├── benchmark.py                # Battle royale benchmark (isolated + full modes)
 │   ├── benchmark_competitors.py    # Full competitor benchmark 
 │   ├── benchmark_isolated.py       # Battle-policy-only benchmark (same team)
-│   ├── tune_weights.py             # Optuna 14-weight tuning pipeline
+│   ├── tune_weights.py             # Optuna 14-weight BP tuning pipeline
+│   ├── tune_teambuild.py           # Optuna 12-weight teambuild tuning (400 trials)
+│   ├── tune_selection.py           # Optuna 5-weight selection synergy tuning (300 trials)
 │   ├── compare_legacy.py           # Legacy vs extracted policy comparison
 │   └── start_mlflow_server.py      # Launch MLflow tracking server
 │
@@ -197,9 +204,11 @@ dongimon/
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Battle Policy | Operational | 9-component heuristic with tuned weights, Choice Lock detection, board position lookahead |
-| Selection Policy | Operational | Sub-tournament based, uses GreedyBattlePolicy for internal sims |
-| Team Build Policy | Operational | 3-stage HESF pipeline with GA + battle royale |
-| Optuna Tuning | Complete | 14 weights tuned against JJJ/minimon/StocKarpador |
+| Selection Policy | Operational | Analytical pair-synergy fast path (≤4) + sub-tournament full path (>4), Optuna-tuned |
+| Team Build Policy | Operational | 3-stage HESF pipeline with GA + battle royale, Optuna-tuned weights |
+| Optuna Tuning (BP) | In Progress | 14 battle weights tuned against JJJ/minimon/StocKarpador |
+| Optuna Tuning (TB) | Complete | 12 teambuild weights, best trial #192 WR=0.8060 (400 trials) |
+| Optuna Tuning (Sel) | Complete | 5 selection synergy weights, best trial #211 WR=0.8083 (300 trials) |
 | Benchmark Suite | Complete | Isolated + full modes, CSV logging, MLflow tracking |
 | RL Training | Planned | BC pretraining -> DQN/PPO -> PSRO self-play -> Transfer learning |
 
@@ -260,6 +269,22 @@ Dongimon's three-stage HESF teambuild produced teams that consistently underperf
 - vs minimon (Dongimon BP): 0.250 → **0.910** (significant win)
 
 **Teambuild team composition shifted:** Fast/Jolly/Naive/Hasty natures with 252 Spe EVs now appear regularly alongside the existing bulky ADAMANT/MODEST builds, giving the GA a genuine choice between speed and bulk.
+
+### v6 (July 29): Optuna-tuned Teambuild + Selection weights
+
+**Teambuild tuning** (`scripts/tune_teambuild.py`, 400 trials on EC2 c7i.xlarge):
+- Objective: mean win rate of Dongimon teams (Greedy pilot) vs 4 opponents × 10 fresh rosters × 15 battles per trial
+- Best trial #192: **WR = 0.8060**
+- Key insight: GA heavily favours `ga_viability` (0.446) and `ga_stat_diversity` (0.418) over type coverage/defence (≤0.04 each); archetype weights favour `w_stat_syn` (0.334) and `w_speed_syn` (0.224) — synergy-aware stat/speed upgrades dominate raw damage
+
+**Selection tuning** (`scripts/tune_selection.py`, 300 trials):
+- Objective: mean win rate with analytical pair-synergy fast path (Greedy pilot) vs 4 opponents × 10 fresh rosters × 15 battles per trial
+- Best trial #211: **WR = 0.8083**
+- Key insight: `w_speed` (0.364) and `w_matchup` (0.346) dominate; speed control and raw matchup damage matter far more than defensive complementarity (0.073) or coverage breadth (0.076)
+
+**Tuned weight files:**
+- `src/config/teambuild_weights.yaml` — 12 weights (6 archetype + 6 GA fitness)
+- `src/config/selection_synergy.yaml` — 5 term weights + fixed avg/worst blend (0.6/0.4)
 
 ---
 

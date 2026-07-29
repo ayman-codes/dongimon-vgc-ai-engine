@@ -17,6 +17,9 @@ from vgc2.agent.battle import GreedyBattlePolicy
 from vgc2.battle_engine import Team
 from vgc2.battle_engine.modifiers import Category, Stat
 
+from src.config.loader import load_selection_synergy
+from src.config.models import SelectionSynergyWeights
+from src.selection.pair_synergy import pair_synergy_terms
 from src.selection.prediction import predict_opponent_builds
 from src.selection.tournament import generate_team_combinations, run_sub_tournament
 from src.shared.types import type_effectiveness, vgc2_type_to_name
@@ -26,6 +29,7 @@ N_TOP_CANDIDATES = 5
 _INDIVIDUAL_WEIGHT = 1.07
 _BULK_WEIGHT = 0.42
 _BALANCE_WEIGHT = 0.30
+_MATCHUP_NORM = 2.0
 
 
 class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
@@ -38,11 +42,23 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
     Pair ranking: win rate, then pair damage proxy, then pair BST.
     """
 
-    def __init__(self, n_top_candidates: int = N_TOP_CANDIDATES) -> None:
+    def __init__(
+        self,
+        n_top_candidates: int = N_TOP_CANDIDATES,
+        synergy_weights: SelectionSynergyWeights | None = None,
+    ) -> None:
+        """Initialize the selection policy.
+
+        Args:
+            n_top_candidates: Number of top rosters to simulate (full path).
+            synergy_weights: Optional pair-synergy weights for the fast path.
+                Loads from selection_synergy.yaml if None.
+        """
         super().__init__()
         self._battle_policy = GreedyBattlePolicy()
         self._n_active = 2
         self._n_top = n_top_candidates
+        self._synergy = synergy_weights or load_selection_synergy()
 
     def decision(self, teams: tuple[Team, Team], max_size: int) -> list[int]:
         """Select the best roster ordered as best active pair then reserves.
@@ -66,6 +82,9 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
             raise RuntimeError("selection.decision: own team has zero members")
         if len(opp_views) == 0:
             raise RuntimeError("selection.decision: opponent team view has zero members")
+
+        if len(my_full_team.members) <= max_size:
+            return self._order_by_pair_synergy(my_full_team, opp_views, max_size)
 
         predicted_builds: dict[Any, list[Any]] = {}
         for opp_view in opp_views:
@@ -175,6 +194,80 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                 f"selection.decision: ordered selection length {len(ordered)} "
                 f"< expected {min(max_size, len(my_full_team.members))}"
             )
+        return ordered[:max_size]
+
+    def _order_by_pair_synergy(
+        self,
+        my_full_team: Team,
+        opp_views: list[Any],
+        max_size: int,
+    ) -> list[int]:
+        """Order a final-size team by analytical pair synergy (no simulation).
+
+        Fast path for the pure-ordering case: the team already has exactly
+        max_size members, so there is no subset to choose — only which pair
+        starts active. Ranks all C(n, 2) candidate pairs by a weighted blend
+        of an opponent-aware matchup term (avg/worst blend over opponent
+        pairs) and the intra-pair synergy score, returning the best pair
+        first followed by the reserves.
+
+        Args:
+            my_full_team: Our full team (size <= max_size).
+            opp_views: Opponent PokemonView list.
+            max_size: Maximum team size to return.
+
+        Returns:
+            Ordered indices: best active pair first, then reserves.
+
+        Raises:
+            RuntimeError: If no candidate pairs or opponent pairs exist.
+        """
+        my_pairs = generate_team_combinations(my_full_team, self._n_active)
+        if not my_pairs:
+            raise RuntimeError(
+                f"selection.fast_path: no pairs of size {self._n_active} from "
+                f"team size {len(my_full_team.members)}"
+            )
+
+        opp_pairs = list(itertools.combinations(opp_views, self._n_active))
+        if not opp_pairs:
+            raise RuntimeError(
+                f"selection.fast_path: no opponent pairs of size {self._n_active} "
+                f"from {len(opp_views)} views"
+            )
+
+        w = self._synergy
+        scored: list[tuple[float, tuple[int, ...]]] = []
+        for my_pair in my_pairs:
+            pair_species = [my_full_team.members[i].species for i in my_pair]
+
+            matchup_per_opp = []
+            for opp_pair in opp_pairs:
+                dmg = 0.0
+                for member in pair_species:
+                    for opp_view in opp_pair:
+                        dmg += self._max_damage_ratio(member, opp_view)
+                matchup_per_opp.append(dmg)
+            avg_m = sum(matchup_per_opp) / len(matchup_per_opp)
+            worst_m = min(matchup_per_opp)
+            matchup = w.avg_weight * avg_m + w.worst_weight * worst_m
+            matchup_norm = min(matchup / _MATCHUP_NORM, 1.0)
+
+            terms = pair_synergy_terms(pair_species, opp_views)
+            total = w.w_matchup * matchup_norm
+            total += w.w_defense * terms["defense"]
+            total += w.w_speed * terms["speed"]
+            total += w.w_role * terms["role"]
+            total += w.w_coverage * terms["coverage"]
+            scored.append((total, my_pair))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_pair = scored[0][1]
+
+        ordered: list[int] = [int(i) for i in best_pair]
+        for idx in range(len(my_full_team.members)):
+            if idx not in ordered:
+                ordered.append(idx)
         return ordered[:max_size]
 
     def _pair_damage_score(

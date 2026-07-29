@@ -4,7 +4,13 @@ from pathlib import Path
 
 import yaml
 
-from src.config.models import BattleWeights, SelectionConfig, TeambuildConfig, TeambuildWeights
+from src.config.models import (
+    BattleWeights,
+    SelectionConfig,
+    SelectionSynergyWeights,
+    TeambuildConfig,
+    TeambuildWeights,
+)
 
 
 def load_battle_weights(path: Path | None = None) -> BattleWeights:
@@ -40,6 +46,23 @@ def teambuild_config() -> TeambuildConfig:
         TeambuildConfig with default values.
     """
     return TeambuildConfig()
+
+
+def load_selection_synergy(path: Path | None = None) -> SelectionSynergyWeights:
+    """Load selection pair-synergy weights from a YAML file.
+
+    Args:
+        path: Path to the YAML file. Defaults to ``selection_synergy.yaml``
+            in the config directory.
+
+    Returns:
+        Validated SelectionSynergyWeights instance.
+    """
+    if path is None:
+        path = Path(__file__).parent / "selection_synergy.yaml"
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return SelectionSynergyWeights(**data)
 
 
 def load_teambuild_weights(path: Path | None = None) -> TeambuildWeights:
