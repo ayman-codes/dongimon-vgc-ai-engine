@@ -1,9 +1,12 @@
 """Selection Policy — Team Preview decision-making.
 
 Runs the full pipeline: predict opponent builds from species views,
-then score all 4-Pokemon rosters via a JJJ-style damage-ratio matrix
-with coverage balance, pre-filter to the top candidates, and simulate
-only those via pair-vs-pair sub-tournament for the final ranking.
+then score all 4-Pokemon rosters via a damage-ratio matrix with coverage
+balance, pre-filter to the top candidates, and simulate only those via
+pair-vs-pair sub-tournament for the final ranking.
+
+Failures are never swallowed: missing data or zero completed sims raise
+RuntimeError so selection bugs surface immediately.
 """
 
 import itertools
@@ -26,12 +29,13 @@ _BALANCE_WEIGHT = 0.30
 
 
 class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
-    """Team Preview selection using JJJ-style matrix pre-filter + simulation.
+    """Team Preview selection using matrix pre-filter + simulation.
 
-    Generates all C(6,4) = 15 possible 4-Pokemon rosters, scores each
-    via a damage-proxy matrix (fast), keeps the top N, evaluates those
-    with full pair-vs-pair sub-tournament simulations, and returns
-    the empirically strongest roster.
+    Generates all C(n, max_size) rosters, scores each via a damage-proxy
+    matrix, keeps the top N, evaluates pairs with sub-tournament sims, and
+    returns best pair first (active) then remaining roster (reserve).
+
+    Pair ranking: win rate, then pair damage proxy, then pair BST.
     """
 
     def __init__(self, n_top_candidates: int = N_TOP_CANDIDATES) -> None:
@@ -41,19 +45,29 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         self._n_top = n_top_candidates
 
     def decision(self, teams: tuple[Team, Team], max_size: int) -> list[int]:
-        """Select the best 4-Pokemon roster from our team.
+        """Select the best roster ordered as best active pair then reserves.
 
         Args:
             teams: Tuple of (my_team, opponent_team_view).
             max_size: Maximum team size to select (typically 4).
 
         Returns:
-            List of indices into our team members to bring to battle.
+            Ordered indices: best pair (active) first, then remaining roster
+            members as reserve.
+
+        Raises:
+            RuntimeError: On empty team, empty opponent views, failed
+                prediction, empty pair scores, or all-zero win rates.
         """
         my_full_team, opp_team_view = teams
-        opp_views = opp_team_view.members
+        opp_views = list(opp_team_view.members)
 
-        predicted_builds = {}
+        if len(my_full_team.members) == 0:
+            raise RuntimeError("selection.decision: own team has zero members")
+        if len(opp_views) == 0:
+            raise RuntimeError("selection.decision: opponent team view has zero members")
+
+        predicted_builds: dict[Any, list[Any]] = {}
         for opp_view in opp_views:
             builds = predict_opponent_builds(
                 pokemon_view=opp_view,
@@ -61,28 +75,50 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                 all_opp_views=opp_views,
                 params=self.params,
             )
+            if not builds:
+                raise RuntimeError(
+                    "selection.decision: predict_opponent_builds returned empty "
+                    f"list for opponent species id={getattr(getattr(opp_view, 'species', None), 'id', '?')}"
+                )
+            if not any(getattr(b, "moves", None) for b in builds):
+                raise RuntimeError(
+                    "selection.decision: all predicted builds lack moves for an opponent mon"
+                )
             predicted_builds[opp_view] = builds
 
         all_rosters = list(generate_team_combinations(my_full_team, max_size))
-
         if not all_rosters:
-            return list(range(min(max_size, len(my_full_team.members))))
+            raise RuntimeError(
+                f"selection.decision: no rosters of size {max_size} from "
+                f"team size {len(my_full_team.members)}"
+            )
 
-        roster_scores = []
+        roster_scores: list[tuple[float, tuple[int, ...]]] = []
         for roster in all_rosters:
             score = self._score_roster_matrix(roster, my_full_team, opp_views)
             roster_scores.append((score, roster))
 
-        roster_scores.sort(key=lambda x: -x[0], reverse=True)
-        candidates = roster_scores[:max(self._n_top, 1)]
+        roster_scores.sort(key=lambda x: x[0], reverse=True)
+        candidates = roster_scores[: max(self._n_top, 1)]
 
         my_pairs = generate_team_combinations(my_full_team, self._n_active)
-        opp_pairs = list(itertools.combinations(opp_views, self._n_active))
+        if not my_pairs:
+            raise RuntimeError(
+                f"selection.decision: no pairs of size {self._n_active} from "
+                f"team size {len(my_full_team.members)}"
+            )
 
-        roster_results: dict[tuple[int, ...], float] = {}
+        opp_pairs = list(itertools.combinations(opp_views, self._n_active))
+        if not opp_pairs:
+            raise RuntimeError(
+                f"selection.decision: no opponent pairs of size {self._n_active} "
+                f"from {len(opp_views)} views"
+            )
+
+        roster_results: dict[tuple[int, ...], tuple[float, tuple[int, ...]]] = {}
         for _, roster in candidates:
-            pair_win_rates = []
-            for _, my_pair in enumerate(my_pairs):
+            pair_records: list[tuple[float, float, float, tuple[int, ...]]] = []
+            for my_pair in my_pairs:
                 if not set(my_pair).issubset(set(roster)):
                     continue
                 total_wr = 0.0
@@ -96,19 +132,92 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                         params=self.params,
                     )
                     total_wr += wr
-                avg_wr = total_wr / len(opp_pairs) if opp_pairs else 0.0
-                pair_win_rates.append((avg_wr, my_pair))
-            if pair_win_rates:
-                pair_win_rates.sort(key=lambda x: -x[0])
-                roster_results[tuple(roster)] = pair_win_rates[0][0]
-            else:
-                roster_results[tuple(roster)] = 0.0
+                avg_wr = total_wr / len(opp_pairs)
+                pair_dmg = self._pair_damage_score(my_pair, my_full_team, opp_views)
+                pair_bst = self._pair_bst(my_pair, my_full_team)
+                pair_records.append((avg_wr, pair_dmg, pair_bst, my_pair))
+
+            if not pair_records:
+                raise RuntimeError(
+                    f"selection.decision: no eligible pairs inside roster {roster}"
+                )
+
+            pair_records.sort(key=lambda r: (r[0], r[1], r[2]), reverse=True)
+            best_wr, _best_dmg, _best_bst, best_pair = pair_records[0]
+            roster_results[tuple(roster)] = (best_wr, best_pair)
 
         if not roster_results:
-            return list(range(min(max_size, len(my_full_team.members))))
+            raise RuntimeError("selection.decision: roster_results empty after candidate loop")
 
-        best_roster = max(roster_results, key=lambda r: roster_results[r])
-        return list(best_roster)
+        all_wrs = [wr for wr, _ in roster_results.values()]
+        if all(wr == 0.0 for wr in all_wrs):
+            raise RuntimeError(
+                "selection.decision: all pair win rates are 0.0 — sub-tournament "
+                "produced no wins (check prediction/sim). pair WRs="
+                f"{[(r, roster_results[r][0]) for r in roster_results]}"
+            )
+
+        best_roster = max(
+            roster_results,
+            key=lambda r: (
+                roster_results[r][0],
+                self._pair_damage_score(roster_results[r][1], my_full_team, opp_views),
+                self._pair_bst(roster_results[r][1], my_full_team),
+            ),
+        )
+        _best_wr, best_pair = roster_results[best_roster]
+        ordered: list[int] = [int(i) for i in best_pair]
+        for idx in best_roster:
+            if int(idx) not in ordered:
+                ordered.append(int(idx))
+        if len(ordered) < min(max_size, len(my_full_team.members)):
+            raise RuntimeError(
+                f"selection.decision: ordered selection length {len(ordered)} "
+                f"< expected {min(max_size, len(my_full_team.members))}"
+            )
+        return ordered[:max_size]
+
+    def _pair_damage_score(
+        self,
+        pair: tuple[int, ...],
+        my_full_team: Team,
+        opp_views: list[Any],
+    ) -> float:
+        """Sum max damage-ratio proxies for each mon in the pair vs all opponents.
+
+        Args:
+            pair: Indices of the pair on our team.
+            my_full_team: Our full team.
+            opp_views: Opponent Pokemon views.
+
+        Returns:
+            Aggregate damage proxy (higher = stronger offense vs the field).
+        """
+        total = 0.0
+        for idx in pair:
+            member = my_full_team.members[int(idx)]
+            member_spec = member.species if hasattr(member, "species") else member
+            for opp_view in opp_views:
+                total += self._max_damage_ratio(member_spec, opp_view)
+        return total
+
+    @staticmethod
+    def _pair_bst(pair: tuple[int, ...], my_full_team: Team) -> float:
+        """Sum base-stat totals for the pair.
+
+        Args:
+            pair: Indices of the pair on our team.
+            my_full_team: Our full team.
+
+        Returns:
+            Sum of BSTs for the pair members.
+        """
+        total = 0.0
+        for idx in pair:
+            member = my_full_team.members[int(idx)]
+            base = member.species.base_stats
+            total += float(sum(base))
+        return total
 
     def _score_roster_matrix(
         self,
@@ -116,16 +225,10 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         my_full_team: Team,
         opp_views: list[Any],
     ) -> float:
-        """Score a 4-Pokemon roster using JJJ-style damage-ratio estimation.
-
-        For each roster member vs each opponent species, estimates the
-        maximum damage ratio (fraction of HP dealt) using the simplified
-        damage formula with STAB, type effectiveness, accuracy, and
-        priority bonus. Adds a coverage balance term penalizing rosters
-        that concentrate damage on few opponents.
+        """Score a roster using damage-ratio estimation.
 
         Args:
-            roster: Tuple of 4 indices into my_full_team.
+            roster: Tuple of indices into my_full_team.
             my_full_team: Our full team.
             opp_views: Opponent PokemonView list.
 
@@ -134,7 +237,7 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         """
         n_opp = len(opp_views)
         if n_opp == 0:
-            return 0.0
+            raise RuntimeError("_score_roster_matrix: empty opp_views")
 
         damage_per_opp = [0.0] * n_opp
         total_individual = 0.0
@@ -164,11 +267,6 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
     @staticmethod
     def _max_damage_ratio(my_species: Any, opp_view: Any) -> float:
         """Estimate max damage ratio of one of our species vs an opponent.
-
-        Uses the simplified damage formula:
-        ratio = (42 * effective_BP * Atk / Def) / (50 * HP) * STAB * type_eff
-
-        Priority moves get an effective BP bonus (+12 per priority level).
 
         Args:
             my_species: Our Pokemon species (or Pokemon with .species).
@@ -229,20 +327,17 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
     def _defensive_multiplier(pkm: Any) -> float:
         """Compute a normalised bulk estimate for a Pokemon.
 
-        Ratios are relative to typical level-50 maximums (402 HP, 257
-        defences) as in JJJ's selection policy.
-
         Args:
             pkm: A Pokemon member from the team.
 
         Returns:
             Float bulk multiplier (higher = bulkier).
         """
-        if hasattr(pkm, 'stats'):
+        if hasattr(pkm, "stats"):
             hp = pkm.stats[Stat.MAX_HP]
             df = pkm.stats[Stat.DEFENSE]
             spd = pkm.stats[Stat.SPECIAL_DEFENSE]
-        elif hasattr(pkm, 'base_stats'):
+        elif hasattr(pkm, "base_stats"):
             hp = pkm.base_stats[Stat.MAX_HP]
             df = pkm.base_stats[Stat.DEFENSE]
             spd = pkm.base_stats[Stat.SPECIAL_DEFENSE]

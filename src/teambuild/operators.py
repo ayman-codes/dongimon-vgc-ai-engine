@@ -39,12 +39,12 @@ TYPE_NAMES = [vgc2_type_to_name(t.value) for t in VGC2_TYPE_ORDER]
 
 N_TYPES = 18
 
-_COVERAGE_BALANCE_WEIGHT = 0.15
-_VIABILITY_WEIGHT = 0.25
-_COVERAGE_WEIGHT = 0.20
-_DEFENCE_WEIGHT = 0.20
-_STAT_DIVERSITY_WEIGHT = 0.10
-_ROLE_DIVERSITY_WEIGHT = 0.10
+_COVERAGE_BALANCE_WEIGHT = 0.17
+_VIABILITY_WEIGHT = 0.35
+_COVERAGE_WEIGHT = 0.18
+_DEFENCE_WEIGHT = 0.13
+_STAT_DIVERSITY_WEIGHT = 0.09
+_ROLE_DIVERSITY_WEIGHT = 0.08
 
 
 def _type_name(t: Any) -> str:
@@ -104,7 +104,7 @@ def seed_coverage_teams(
     n_seeds: int,
     rng: Any,
 ) -> list[list[int]]:
-    """Generate seed teams using JJJ-style type-rank coverage selection.
+    """Generate seed teams using type-rank coverage selection.
 
     Builds a 19xN type-coverage matrix ranked by damage potential, then
     greedily selects teams that minimise coverage range across all 19 types.
@@ -441,6 +441,7 @@ def calculate_team_fitness(
     team_indices: list[int],
     pool_species: list[Any],
     viability_scores: dict[Any, float],
+    custom_weights: dict[str, float] | None = None,
 ) -> float:
     """Compute fitness for a team of species.
 
@@ -457,6 +458,7 @@ def calculate_team_fitness(
         team_indices: List of indices into pool_species.
         pool_species: Full species pool.
         viability_scores: Dict mapping species -> float viability score.
+        custom_weights: Optional dict of GA fitness weights overriding defaults.
 
     Returns:
         Fitness float (higher = better). Range roughly 0–1.
@@ -469,6 +471,16 @@ def calculate_team_fitness(
     sd = _fitness_stat_diversity(members)
     rd = _fitness_role_diversity(members)
     cb = _fitness_coverage_balance(members)
+
+    if custom_weights:
+        return (
+            custom_weights.get("ga_viability", _VIABILITY_WEIGHT) * v
+            + custom_weights.get("ga_coverage", _COVERAGE_WEIGHT) * tc
+            + custom_weights.get("ga_defence", _DEFENCE_WEIGHT) * td
+            + custom_weights.get("ga_stat_diversity", _STAT_DIVERSITY_WEIGHT) * sd
+            + custom_weights.get("ga_role_diversity", _ROLE_DIVERSITY_WEIGHT) * rd
+            + custom_weights.get("ga_coverage_balance", _COVERAGE_BALANCE_WEIGHT) * cb
+        )
 
     return (
         _VIABILITY_WEIGHT * v

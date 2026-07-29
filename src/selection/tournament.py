@@ -40,7 +40,7 @@ def run_sub_tournament(
     battle_policy: Any,
     params: BattleRuleParam,
 ) -> float:
-    """Run a sub-tournament for one of our pairs against all predicted opponent build combinations.
+    """Run a sub-tournament for one of our pairs against predicted opponent builds.
 
     Simulates battles between our pair and each opponent build combination
     using the vgc2 BattleEngine with the provided battle policy.
@@ -55,12 +55,22 @@ def run_sub_tournament(
 
     Returns:
         Average win rate for our pair across all matchups (0.0–1.0).
+
+    Raises:
+        RuntimeError: If predicted builds are missing, members lack moves, or
+            zero battles complete successfully.
     """
     opp_build_list_a = predicted_builds_dict.get(opp_view_pair[0], [])
     opp_build_list_b = predicted_builds_dict.get(opp_view_pair[1], [])
 
-    if not opp_build_list_a or not opp_build_list_b:
-        return 0.0
+    if not opp_build_list_a:
+        raise RuntimeError(
+            "run_sub_tournament: empty predicted builds for opponent active slot 0"
+        )
+    if not opp_build_list_b:
+        raise RuntimeError(
+            "run_sub_tournament: empty predicted builds for opponent active slot 1"
+        )
 
     sub_wins = 0
     sub_battles = 0
@@ -69,11 +79,15 @@ def run_sub_tournament(
 
     for opp_build_a, opp_build_b in build_matchups:
         if not opp_build_a.moves or not opp_build_b.moves:
-            continue
+            raise RuntimeError(
+                "run_sub_tournament: predicted opponent build has empty moveset"
+            )
 
         my_pair_pkm = [my_full_team.members[i] for i in my_pair_indices]
         if not all(p.moves for p in my_pair_pkm):
-            continue
+            raise RuntimeError(
+                f"run_sub_tournament: our pair {my_pair_indices} has a member with no moves"
+            )
 
         remaining = [
             (i, my_full_team.members[i])
@@ -92,7 +106,11 @@ def run_sub_tournament(
         rng = default_rng(sub_battles)
         rng_tuple = ((rng, rng), (rng, rng))
         engine = BattleEngine(
-            initial_state, acc_rng=rng_tuple, eff_rng=rng_tuple, sta_rng=rng_tuple
+            initial_state,
+            params=params,
+            acc_rng=rng_tuple,
+            eff_rng=rng_tuple,
+            sta_rng=rng_tuple,
         )
 
         dummy_my_view = TeamView(my_full_team)
@@ -103,8 +121,8 @@ def run_sub_tournament(
             state_view_p0 = StateView(engine.state, 0, (dummy_my_view, dummy_opp_view))
             state_view_p1 = StateView(engine.state, 1, (dummy_opp_view, dummy_my_view))
 
-            cmd_p0 = battle_policy.decision(state_view_p0)
-            cmd_p1 = battle_policy.decision(state_view_p1)
+            cmd_p0 = battle_policy.decision(state_view_p0, dummy_opp_view)
+            cmd_p1 = battle_policy.decision(state_view_p1, dummy_my_view)
 
             engine.run_turn((cmd_p0, cmd_p1))
 
@@ -112,7 +130,12 @@ def run_sub_tournament(
             sub_wins += 1
         sub_battles += 1
 
-    return sub_wins / sub_battles if sub_battles > 0 else 0.0
+    if sub_battles == 0:
+        raise RuntimeError(
+            f"run_sub_tournament: zero battles completed for pair {my_pair_indices}"
+        )
+
+    return sub_wins / sub_battles
 
 
 def _pick_opp_reserve(

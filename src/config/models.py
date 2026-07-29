@@ -43,7 +43,7 @@ class SelectionConfig(BaseModel):
 
     Attributes:
         selection_mode: Selection algorithm — 'hybrid' (matrix + simulation),
-            'matrix' (JJJ matrix only), or 'simulate' (full simulation).
+            'matrix' (damage matrix only), or 'simulate' (full simulation).
         n_top_candidates: Number of top-ranked rosters to simulate (hybrid mode).
         n_active: Number of active Pokémon per side (default 2 for doubles).
         max_team_size: Maximum team size to select (default 4 for VGC).
@@ -90,3 +90,60 @@ class TeambuildConfig(BaseModel):
     elite_fraction: float = Field(default=0.10, ge=0.0, le=1.0, description="Elite preservation fraction")
     battle_royale_battles: int = Field(default=5, ge=1, le=50, description="Battles per matchup")
     battle_royale_timeout_sec: float = Field(default=30.0, ge=1.0, le=120.0, description="Simulation timeout")
+
+
+class TeambuildWeights(BaseModel):
+    """Tunable weights for the HESF teambuild pipeline.
+
+    Group A — Archetype upgrade weights control how get_optimal_archetype
+    chooses between Fast/Bulky/Wall archetype variants per species.
+    Higher values favour the corresponding fitness component.
+
+    Group B — GA fitness weights control how calculate_team_fitness
+    ranks teams during evolutionary selection. Higher values favour
+    teams strong in the corresponding dimension.
+    """
+
+    w_stat: float = Field(default=0.12, ge=0.0, le=1.0)
+    w_speed: float = Field(default=0.30, ge=0.0, le=1.0)
+    w_dmg: float = Field(default=0.40, ge=0.0, le=1.0)
+    w_util: float = Field(default=0.10, ge=0.0, le=1.0)
+    w_stat_syn: float = Field(default=0.04, ge=0.0, le=1.0)
+    w_speed_syn: float = Field(default=0.04, ge=0.0, le=1.0)
+
+    ga_viability: float = Field(default=0.35, ge=0.0, le=1.0)
+    ga_coverage: float = Field(default=0.18, ge=0.0, le=1.0)
+    ga_defence: float = Field(default=0.13, ge=0.0, le=1.0)
+    ga_stat_diversity: float = Field(default=0.09, ge=0.0, le=1.0)
+    ga_role_diversity: float = Field(default=0.08, ge=0.0, le=1.0)
+    ga_coverage_balance: float = Field(default=0.17, ge=0.0, le=1.0)
+
+    def archetype_dict(self) -> dict[str, float]:
+        """Return Group A weights as a dict for get_optimal_archetype.
+
+        Returns:
+            Dict mapping weight names to their values.
+        """
+        return {
+            "w_stat": self.w_stat,
+            "w_speed": self.w_speed,
+            "w_dmg": self.w_dmg,
+            "w_util": self.w_util,
+            "w_stat_syn": self.w_stat_syn,
+            "w_speed_syn": self.w_speed_syn,
+        }
+
+    def ga_dict(self) -> dict[str, float]:
+        """Return Group B weights as a dict for calculate_team_fitness.
+
+        Returns:
+            Dict mapping weight names to their values.
+        """
+        return {
+            "ga_viability": self.ga_viability,
+            "ga_coverage": self.ga_coverage,
+            "ga_defence": self.ga_defence,
+            "ga_stat_diversity": self.ga_stat_diversity,
+            "ga_role_diversity": self.ga_role_diversity,
+            "ga_coverage_balance": self.ga_coverage_balance,
+        }

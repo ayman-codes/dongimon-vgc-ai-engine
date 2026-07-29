@@ -314,12 +314,12 @@ def predict_opponent_builds(
     predicted_moveset = predict_moveset(species, my_full_team, all_opp_views, params)
     archetype_builds = create_archetype_builds(species, predicted_moveset)
 
-    builds = [build for _, build in archetype_builds]
+    builds = [build for _, build in archetype_builds if build.moves]
 
     utility_variant = _deduce_utility_variant(species, predicted_moveset, my_full_team, all_opp_views, params)
     if utility_variant:
         variant_builds = create_archetype_builds(species, utility_variant)
-        builds.extend(build for _, build in variant_builds)
+        builds.extend(build for _, build in variant_builds if build.moves)
 
     return builds[:4]
 

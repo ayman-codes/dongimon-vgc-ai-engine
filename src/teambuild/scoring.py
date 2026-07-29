@@ -107,7 +107,7 @@ def build_coefficient_table(
     """
     phys_cats = (Category.PHYSICAL, Category.PHYSICAL.value)
     spec_cats = (Category.SPECIAL, Category.SPECIAL.value)
-    level_factor = int(int((2 * 50) / 5) + 2)
+    level_factor = int(int((2 * 100) / 5) + 2)
     stab_mult = params.STAB_MODIFIER
     type_arr = params.DAMAGE_MULTIPLICATION_ARRAY
 

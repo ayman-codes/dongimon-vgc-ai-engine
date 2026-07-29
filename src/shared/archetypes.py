@@ -73,7 +73,7 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any
     base_stats = species.base_stats
     ivs = (31, 31, 31, 31, 31, 31)
     is_phys = base_stats[Stat.ATTACK] >= base_stats[Stat.SPECIAL_ATTACK]
-    lv = 50
+    lv = 100
 
     def _make(name: str, evs: tuple[int, ...], nature: int) -> None:
         moves = _archetype_moves(name, predicted_moveset, species)
@@ -89,9 +89,14 @@ def create_archetype_builds(species: PokemonSpecies, predicted_moveset: list[Any
         builds.append((name, Pokemon(species, indices, lv, evs, ivs, nature)))
 
     _make("Fast Physical Sweeper", (4, 252, 0, 0, 0, 252), Nature.JOLLY)
+    _make("The Dragon Dance Setup Sweeper", (0, 252, 4, 0, 0, 252), Nature.ADAMANT)
     _make("Fast Special Sweeper", (4, 0, 0, 252, 0, 252), Nature.TIMID)
+    _make("Speed Physical Offense", (6, 252, 0, 0, 0, 252), Nature.ADAMANT)
+    _make("Speed Special Offense", (6, 0, 0, 252, 0, 252), Nature.MODEST)
     _make("Bulky Physical Attacker", (252, 252, 4, 0, 0, 0), Nature.ADAMANT)
+    _make("HP Physical Attacker", (252, 168, 0, 84, 0, 6), Nature.ADAMANT)
     _make("Bulky Special Attacker", (252, 0, 4, 252, 0, 0), Nature.MODEST)
+    _make("HP Special Attacker", (252, 84, 0, 168, 0, 6), Nature.MODEST)
     _make("Physically Defensive Wall", (252, 0, 252, 0, 4, 0), Nature.IMPISH if is_phys else Nature.BOLD)
     _make("Specially Defensive Wall", (252, 0, 4, 0, 252, 0), Nature.CAREFUL if is_phys else Nature.CALM)
 
@@ -128,7 +133,7 @@ def create_generic_build_for_species(species: PokemonSpecies) -> Pokemon | None:
     return Pokemon(
         species=species,
         move_indexes=move_indices,
-        level=50,
+        level=100,
         evs=default_evs,
         ivs=default_ivs,
         nature=Nature.SERIOUS,

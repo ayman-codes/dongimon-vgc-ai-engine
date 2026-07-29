@@ -68,6 +68,7 @@ def get_optimal_archetype(
     params: BattleRuleParam,
     generic_cache: dict[Any, Any] | None = None,
     coeff_table: dict[Any, list[tuple[float, int]]] | None = None,
+    custom_weights: dict[str, float] | None = None,
 ) -> Pokemon | None:
     """Determine the single best competitive build for a species.
 
@@ -82,6 +83,7 @@ def get_optimal_archetype(
         params: Battle rule parameters.
         generic_cache: Optional precomputed generic builds per species.
         coeff_table: Optional precomputed damage coefficients for fast scoring.
+        custom_weights: Optional dict of archetype weights overriding defaults.
 
     Returns:
         A single optimized Pokemon object, or a generic build on failure.
@@ -120,13 +122,13 @@ def get_optimal_archetype(
     if not evaluations:
         return create_generic_build_for_species(species)
 
-    weights = {
-        "w_stat": 0.2,
-        "w_speed": 0.2,
-        "w_dmg": 0.3,
-        "w_util": 0.2,
-        "w_stat_syn": 0.05,
-        "w_speed_syn": 0.05,
+    weights = custom_weights if custom_weights else {
+        "w_stat": 0.12,
+        "w_speed": 0.30,
+        "w_dmg": 0.40,
+        "w_util": 0.10,
+        "w_stat_syn": 0.04,
+        "w_speed_syn": 0.04,
     }
 
     best_info = None

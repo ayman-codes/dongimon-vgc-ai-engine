@@ -27,6 +27,7 @@ def run_evolution(
     mutation_rate: float,
     elite_fraction: float,
     rng: Any,
+    custom_weights: dict[str, float] | None = None,
 ) -> list[list[int]]:
     """Run the evolutionary algorithm and return the top K teams.
 
@@ -39,6 +40,7 @@ def run_evolution(
         mutation_rate: Per-position mutation probability.
         elite_fraction: Fraction of population preserved unchanged.
         rng: NumPy Generator for reproducibility.
+        custom_weights: Optional dict of GA fitness weights overriding defaults.
 
     Returns:
         List of top K teams (each team is a list of 6 species indices),
@@ -58,7 +60,10 @@ def run_evolution(
         population = coverage_seeds[:pop_size]
 
     for _gen in range(generations):
-        fitnesses = [calculate_team_fitness(team, pool_species, viability_scores) for team in population]
+        fitnesses = [
+            calculate_team_fitness(team, pool_species, viability_scores, custom_weights)
+            for team in population
+        ]
 
         ranked = sorted(zip(population, fitnesses, strict=False), key=lambda x: -x[1])
 
@@ -88,7 +93,10 @@ def run_evolution(
 
         population = next_pop[:pop_size]
 
-    final_fitnesses = [calculate_team_fitness(team, pool_species, viability_scores) for team in population]
+    final_fitnesses = [
+        calculate_team_fitness(team, pool_species, viability_scores, custom_weights)
+        for team in population
+    ]
 
     ranked_final = sorted(zip(population, final_fitnesses, strict=False), key=lambda x: -x[1])
     top_k = max(3, int(pop_size * elite_fraction))

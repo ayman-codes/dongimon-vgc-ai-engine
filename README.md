@@ -214,6 +214,55 @@ dongimon/
 
 ---
 
+## Performance History
+
+### v4 (pre-July 29): Teambuild ranked 4th--5th despite sophisticated pipeline
+
+Dongimon's three-stage HESF teambuild produced teams that consistently underperformed against simpler competitors under both Greedy and Dongimon battle pilots.
+
+| Benchmark | Dongimon Rank | Dongimon WR | vs JJJ | vs caaaden |
+|-----------|--------------|-------------|--------|------------|
+| Greedy BP (teambuild+selection only) | 4th | 0.423 | 0.453 | 0.277 |
+| Dongimon BP (full pipeline) | 5th | 0.253 | 0.090 | 0.177 |
+
+**Diagnosis:** The archetype upgrade function (`get_optimal_archetype`) systematically favoured bulky-offense builds over speed-offense builds through three compounding biases:
+
+1. **Level mismatch (critical):** `build_coefficient_table` calculated damage using level-50 defenders against level-100 attackers, inflating damage estimates by ~2×. When every archetype appeared to OHKO every opponent, the `w_dmg` fitness component dominated and speed differentiation was washed out.
+
+2. **Weight imbalance:** The bulky camp (`w_dmg=0.36` + `w_util=0.16` = 0.52) outweighed the speed camp (`w_speed=0.24` + `w_stat=0.16` = 0.40) by +30%. Jolly/Timid fast sweepers could never outscore Adamant/Modest bulky attackers in the archetype fitness evaluation.
+
+3. **GA fitness misalignment:** The genetic algorithm weighted defensive synergy and type coverage breadth (0.38 combined) more heavily than raw species viability (0.30). JJJ and caaaden succeed by prioritising individual species power (BST, offensive firepower) over team-level synergy.
+
+### v5 (July 29): Weight and coefficient fixes
+
+**Fixes applied** (6 files, ~25 lines changed):
+
+| File | Change | Reason |
+|------|--------|--------|
+| `src/teambuild/scoring.py` | `level_factor` 50→100 in `build_coefficient_table` | Match attacker level (lv100) for accurate damage scaling |
+| `src/shared/archetypes.py` | `level` 50→100 in `create_generic_build_for_species` | Defender stats match attacker level |
+| `src/teambuild/fitness.py` | `w_speed` 0.24→0.30, `w_util` 0.16→0.10, `w_dmg` 0.36→0.40, `w_stat` 0.16→0.12 | Shift archetype preference from bulky-utility (0.52) toward speed-damage |
+| `src/teambuild/operators.py` | `_VIABILITY_WEIGHT` 0.30→0.35, `_COVERAGE_WEIGHT` 0.22→0.18, `_DEFENCE_WEIGHT` 0.16→0.13 | Align GA with JJJ/caaaden (more BST, less synergy) |
+| `src/selection/prediction.py` | Filter builds with empty movesets in `predict_opponent_builds` | Prevent crashes when opponent species has non-standard movepools |
+| `scripts/benchmark_team.py` | `_try_selection` wrapper for opponents (silent fallback); `_safe_selection` for Dongimon (loud failure) | Isolate Dongimon failures; opponent failures never terminate benchmark |
+
+### v5 Results (10 rounds × 30 battles, same seed)
+
+| Benchmark | Dongimon Rank | Dongimon WR | vs JJJ | vs caaaden | Change |
+|-----------|--------------|-------------|--------|------------|--------|
+| Greedy BP | **1st** (was 4th) | **0.666** (was 0.423) | 0.693 | 0.493 | **+57%** |
+| Dongimon BP | **2nd** (was 5th) | **0.618** (was 0.253) | 0.513 | 0.363 | **+144%** |
+
+**Head-to-head improvements:**
+
+- vs JJJ (Dongimon BP): 0.090 → **0.513** (no longer a significant loss)
+- vs caaaden (Greedy BP): 0.277 → **0.493** (near-even split)
+- vs minimon (Dongimon BP): 0.250 → **0.910** (significant win)
+
+**Teambuild team composition shifted:** Fast/Jolly/Naive/Hasty natures with 252 Spe EVs now appear regularly alongside the existing bulky ADAMANT/MODEST builds, giving the GA a genuine choice between speed and bulk.
+
+---
+
 <p align="center">
   <sub>Built with Python 3.11+ &middot; vgc2 v2.1.3 &middot; MLflow &middot; Optuna &middot; Pydantic &middot; YAML</sub>
 </p>

@@ -1,8 +1,7 @@
 """Single optimal build creation and species power scoring for the Team Build Policy.
 
-Uses minimon-style role detection (sweeper, tank, mixed) to produce one
-optimal EV spread, nature, and moveset per species — no damage calculations,
-pure base-stat arithmetic.
+Uses physical/special lean detection for EV/nature, damage-first movesets,
+and a BST-boosted species power proxy.
 """
 
 from typing import Any
@@ -12,11 +11,11 @@ from vgc2.battle_engine.pokemon import Pokemon, PokemonSpecies
 
 
 def create_single_optimal_build(species: PokemonSpecies) -> Pokemon | None:
-    """Create one optimal build for a species using minimon-style role detection.
+    """Create one optimal build for a species using offense-first role detection.
 
-    Determines if the species is a sweeper, tank, or mixed attacker based
-    on base stats, assigns role-appropriate EVs and nature, and selects
-    the best 4 moves by STAB-weighted base power.
+    Physical vs special lean uses sum(BP × attack stat). EVs/nature use
+    HP-offense spreads (ADAMANT/MODEST). Moves prefer high BP/STAB with at
+    most one utility slot.
 
     Args:
         species: The Pokemon species to build.
@@ -30,14 +29,14 @@ def create_single_optimal_build(species: PokemonSpecies) -> Pokemon | None:
 
     base = species.base_stats
 
-    role = _detect_role(base)
+    role = _detect_role(base, species)
     evs, nature = _pick_evs_and_nature(role, base)
     move_indices = _pick_moves(species)
 
     return Pokemon(
         species=species,
         move_indexes=move_indices,
-        level=50,
+        level=100,
         evs=evs,
         ivs=(31, 31, 31, 31, 31, 31),
         nature=nature,
@@ -45,11 +44,11 @@ def create_single_optimal_build(species: PokemonSpecies) -> Pokemon | None:
 
 
 def species_power(species: PokemonSpecies) -> float:
-    """Compute a STAB-aware expected damage proxy for a species.
+    """Compute a damage + BST power proxy for a species.
 
-    For each damaging move, computes accuracy * base_power * relevant_attack
-    * STAB multiplier. The offensive component is the maximum across all moves.
-    Bulk is HP * (Def + SpD) * 0.5.
+    Offensive term: max over damaging moves of accuracy × BP × attack × STAB.
+    Bulk term: HP × (Def + SpD) × 0.35 (down-weighted vs prior bulk-first).
+    BST term: sum(base_stats) × 1.5 (firepower bias).
 
     Args:
         species: The Pokemon species to evaluate.
@@ -82,8 +81,9 @@ def species_power(species: PokemonSpecies) -> float:
         if score > best_offensive:
             best_offensive = score
 
-    bulk = hp * (df + spd) * 0.5
-    return float(best_offensive + bulk)
+    bulk = hp * (df + spd) * 0.35
+    bst = float(sum(base)) * 1.5
+    return float(best_offensive + bulk + bst)
 
 
 def species_role(species: PokemonSpecies) -> str:
@@ -97,35 +97,56 @@ def species_role(species: PokemonSpecies) -> str:
     Returns:
         Role label string.
     """
-    role, _ = _detect_role(species.base_stats)
+    role, _ = _detect_role(species.base_stats, species)
     return role
 
 
-def _detect_role(base: tuple[int, ...]) -> tuple[str, str]:
-    """Detect role from base stats.
+def _detect_role(base: tuple[int, ...], species: PokemonSpecies | None = None) -> tuple[str, str]:
+    """Detect role from base stats and optional movepool lean.
+
+    When species is provided, physical vs special is decided by
+    sum(BP × Atk) vs sum(BP × SpA) over the movepool.
 
     Args:
         base: Base stats tuple (HP, Atk, Def, SpA, SpD, Spe).
+        species: Optional species for movepool-based phys/spec lean.
 
     Returns:
-        Tuple of (role_label, subtype) where role is one of
-        ``"sweeper"``, ``"wall"``, ``"mixed"``.
+        Tuple of (role_label, subtype).
     """
     hp, atk, df, spa, spd, spe = base
 
     is_phys_lean = atk > spa + 10
     is_spec_lean = spa > atk + 10
 
-    if is_phys_lean and atk + spe > hp + df + spd:
+    if species is not None and species.moves:
+        phys_sum = sum(
+            m.base_power * atk
+            for m in species.moves
+            if m.category in (Category.PHYSICAL, Category.PHYSICAL.value) and m.base_power > 0
+        )
+        spc_sum = sum(
+            m.base_power * spa
+            for m in species.moves
+            if m.category in (Category.SPECIAL, Category.SPECIAL.value) and m.base_power > 0
+        )
+        if phys_sum > spc_sum:
+            is_phys_lean = True
+            is_spec_lean = False
+        elif spc_sum > phys_sum:
+            is_spec_lean = True
+            is_phys_lean = False
+
+    if is_phys_lean and atk + spe >= hp + df:
         return "sweeper", "physical"
-    if is_spec_lean and spa + spe > hp + df + spd:
+    if is_spec_lean and spa + spe >= hp + spd:
+        return "sweeper", "special"
+    if is_phys_lean:
+        return "sweeper", "physical"
+    if is_spec_lean:
         return "sweeper", "special"
 
-    if is_phys_lean and hp + df > atk + spa + spe:
-        return "wall", "physical_defense"
-    if is_spec_lean and hp + spd > atk + spa + spe:
-        return "wall", "special_defense"
-    if hp + df > atk + spa + spe:
+    if hp + df > atk + spa + spe and hp + df > hp + spd:
         return "wall", "physical_defense"
     if hp + spd > atk + spa + spe:
         return "wall", "special_defense"
@@ -134,10 +155,11 @@ def _detect_role(base: tuple[int, ...]) -> tuple[str, str]:
 
 
 def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
-    """Pick EV spread and nature for a role using bulk-first philosophy.
+    """Pick EV spread and nature with offense-first spreads.
 
-    All roles invest 252 EVs in HP for maximum survivability in doubles.
-    Remaining EVs go to the primary offensive or defensive stat.
+    Physical: ADAMANT (252 HP / 168 Atk / 84 SpA dump / 6 Spe).
+    Special: MODEST (252 HP / 84 Atk dump / 168 SpA / 6 Spe).
+    Walls keep bulk spreads; mixed defaults to the stronger offense lean.
 
     Args:
         role: Tuple of (role_label, subtype) from _detect_role.
@@ -151,18 +173,20 @@ def _pick_evs_and_nature(role: tuple[str, str], base: tuple[int, ...]) -> tuple[
     if subtype == "physical":
         return (252, 168, 0, 84, 0, 6), Nature.ADAMANT
     if subtype == "special":
-        return (252, 0, 0, 168, 84, 6), Nature.MODEST
+        return (252, 84, 0, 168, 0, 6), Nature.MODEST
 
     if subtype == "physical_defense":
         return (252, 0, 168, 0, 84, 6), Nature.IMPISH
     if subtype == "special_defense":
         return (252, 0, 84, 0, 168, 6), Nature.CALM
 
-    return (252, 128, 0, 128, 0, 2), Nature.HARDY
+    if base[Stat.ATTACK] >= base[Stat.SPECIAL_ATTACK]:
+        return (252, 168, 0, 84, 0, 6), Nature.ADAMANT
+    return (252, 84, 0, 168, 0, 6), Nature.MODEST
 
 
 def _move_utility(move: Any, species: PokemonSpecies) -> float:
-    """Score a non-damaging move by its utility value.
+    """Score a non-damaging move by its utility value (down-weighted).
 
     Args:
         move: The Move to evaluate.
@@ -172,31 +196,30 @@ def _move_utility(move: Any, species: PokemonSpecies) -> float:
         Float utility score.
     """
     if move.heal > 0:
-        return 80.0
+        return 40.0
     if any(b > 0 for b in move.boosts) and move.self_boosts:
         boost_sum = sum(b for b in move.boosts if b > 0)
-        return 30.0 * float(boost_sum)
+        return 20.0 * float(boost_sum)
     if move.hazard is not None:
-        return 50.0
+        return 30.0
     if move.protect:
-        return 40.0
+        return 25.0
     if move.status != Status.NONE:
-        return 35.0
+        return 28.0
     if move.toggle_reflect or move.toggle_lightscreen:
-        return 60.0
+        return 35.0
     if move.toggle_tailwind or move.toggle_trickroom:
-        return 45.0
+        return 30.0
     if move.weather_start != Weather.CLEAR or move.field_start != Terrain.NONE:
-        return 50.0
+        return 30.0
     return 0.0
 
 
 def _pick_moves(species: PokemonSpecies) -> list[int]:
-    """Select the best 4 moves for a species.
+    """Select the best 4 moves with damage-first priority.
 
-    Scores all moves by a combination of damage potential (STAB-weighted
-    base power) and utility value (setup, recovery, hazards, status, etc.).
-    Damaging moves are prioritised for type diversity.
+    Damaging moves scored by BP × STAB × accuracy (+priority bonus).
+    At most one OTHER/utility move is kept so peak firepower is preserved.
 
     Args:
         species: The Pokemon species.
@@ -206,25 +229,35 @@ def _pick_moves(species: PokemonSpecies) -> list[int]:
     """
     damaging_cats = (Category.PHYSICAL, Category.SPECIAL, Category.PHYSICAL.value, Category.SPECIAL.value)
 
-    scored = []
+    scored: list[tuple[float, Any, bool]] = []
     for m in species.moves:
-        damage_score = 0.0
-        if m.base_power > 0 and m.category in damaging_cats:
+        is_damage = m.base_power > 0 and m.category in damaging_cats
+        if is_damage:
             stab = 1.5 if m.pkm_type in species.types else 1.0
-            damage_score = m.base_power * stab
-        utility_score = _move_utility(m, species)
-        scored.append((damage_score + utility_score, m))
+            acc = m.accuracy if m.accuracy is not None else 1.0
+            pri = 150.0 if getattr(m, "priority", 0) and m.priority > 0 else 0.0
+            damage_score = m.base_power * 2.0 * stab * acc + pri
+            scored.append((damage_score, m, True))
+        else:
+            scored.append((_move_utility(m, species), m, False))
 
     scored.sort(key=lambda x: -x[0])
 
     selected: list[Any] = []
+    n_utility = 0
     seen_damage_types: dict[Any, int] = {}
-    for _score, move in scored:
-        if move.base_power > 0:
+    for _score, move, is_damage in scored:
+        if is_damage:
             type_count = seen_damage_types.get(move.pkm_type, 0)
-            if type_count >= 2 and any(m.base_power > 0 for m in selected):
+            if type_count >= 2 and any(
+                getattr(m, "base_power", 0) > 0 for m in selected
+            ):
                 continue
             seen_damage_types[move.pkm_type] = type_count + 1
+        else:
+            if n_utility >= 1:
+                continue
+            n_utility += 1
         selected.append(move)
         if len(selected) == 4:
             break

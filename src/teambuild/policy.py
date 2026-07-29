@@ -1,8 +1,8 @@
 """HESF Team Build Policy — Heuristic Evolutionary Simulation Funnel.
 
-Stage 1: Create a single optimal build per species using role detection
-(minimon-style), rank by stat-based power proxy (StocKarpador-style),
-then upgrade pool builds via multi-archetype evaluation.
+Stage 1: Create a single optimal build per species using role detection,
+rank by stat-based power proxy, then upgrade pool builds via multi-archetype
+evaluation.
 Stage 2: Evolutionary algorithm for team synergy (type coverage, defence,
 stat diversity, role diversity).
 Stage 3: Battle royale simulation tournament for final validation.
@@ -15,8 +15,8 @@ from vgc2.agent import TeamBuildPolicy
 from vgc2.balance.meta import Meta, Roster
 from vgc2.battle_engine.modifiers import Stat
 
-from src.config.loader import teambuild_config
-from src.config.models import TeambuildConfig
+from src.config.loader import load_teambuild_weights, teambuild_config
+from src.config.models import TeambuildConfig, TeambuildWeights
 from src.shared.archetypes import create_archetype_builds, create_generic_build_for_species
 from src.teambuild.battle_royale import run_battle_royale
 from src.teambuild.builds import create_single_optimal_build, species_power
@@ -29,15 +29,29 @@ from src.teambuild.scoring import build_coefficient_table
 class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
     """Three-stage team building pipeline.
 
-    Stage 1 builds one optimal Pokemon per species (minimon-style role
-    detection) and ranks species by stat-based power. Stage 2 evolves
-    teams of 6 using synergy-aware fitness. Stage 3 validates the top
-    teams via vgc2 BattleEngine simulation.
+    Stage 1 builds one optimal Pokemon per species (role detection) and
+    ranks species by stat-based power. Stage 2 evolves teams using
+    synergy-aware fitness. Stage 3 validates the top teams via vgc2
+    BattleEngine simulation.
     """
 
-    def __init__(self, config: TeambuildConfig | None = None):
+    def __init__(
+        self,
+        config: TeambuildConfig | None = None,
+        custom_weights: TeambuildWeights | None = None,
+        ga_seed: int | None = None,
+    ):
+        """Initialize the HESF team build policy.
+
+        Args:
+            config: Optional teambuild configuration. Uses defaults if None.
+            custom_weights: Optional teambuild weights. Loads from YAML if None.
+            ga_seed: Optional seed for deterministic GA evolution.
+        """
         super().__init__()
         self._config = config or teambuild_config()
+        self._weights = custom_weights or load_teambuild_weights()
+        self._ga_seed = ga_seed
 
     def decision(
         self,
@@ -59,7 +73,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         Returns:
             TeamBuildCommand: (roster_id, evs, ivs, nature, move_indices) per Pokemon.
         """
-        rng = default_rng()
+        rng = default_rng(self._ga_seed) if self._ga_seed is not None else default_rng()
         cfg = self._config
 
         builds_cache = {}
@@ -105,7 +119,8 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                         species, roster_list, generic_cache, self.params
                     )
                 upgraded = get_optimal_archetype(
-                    species, roster_list, global_max_scores, self.params, generic_cache, coeff_table
+                    species, roster_list, global_max_scores, self.params, generic_cache, coeff_table,
+                    custom_weights=self._weights.archetype_dict(),
                 )
                 if upgraded is not None:
                     builds_cache[species] = upgraded
@@ -124,6 +139,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                 mutation_rate=cfg.mutation_rate,
                 elite_fraction=cfg.elite_fraction,
                 rng=rng,
+                custom_weights=self._weights.ga_dict(),
             )
         except (RuntimeError, ValueError, IndexError):
             safe_size = min(max_team_size, len(pool_species))
