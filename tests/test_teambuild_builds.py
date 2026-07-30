@@ -70,11 +70,11 @@ class TestCreateSingleOptimalBuild:
         assert build is not None
         assert all(iv == 31 for iv in build.ivs)
 
-    def test_level_50(self):
+    def test_level_100(self):
         species = _ms("LevelMon")
         build = create_single_optimal_build(species)
         assert build is not None
-        assert build.level == 50
+        assert build.level == 100
 
 
 class TestSpeciesPower:
@@ -109,7 +109,18 @@ class TestSpeciesRole:
         assert species_role(species) == "sweeper"
 
     def test_tank(self):
-        species = _ms("Tank", atk=50, spa=50, hp=150, df=130, spd=130, spe=30)
+        phys_move = Move(
+            pkm_type=Type.NORMAL, base_power=80, accuracy=1.0,
+            max_pp=32, category=Category.PHYSICAL, name="TankPhys",
+        )
+        spec_move = Move(
+            pkm_type=Type.NORMAL, base_power=80, accuracy=1.0,
+            max_pp=32, category=Category.SPECIAL, name="TankSpec",
+        )
+        species = PokemonSpecies(
+            name="Tank", base_stats=(150, 50, 130, 50, 130, 30),
+            types=[Type.NORMAL], moves=[phys_move, spec_move],
+        )
         assert species_role(species) == "wall"
 
     def test_mixed(self):

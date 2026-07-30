@@ -671,7 +671,7 @@ def main() -> None:
     total_matchups = args.n_rounds * len(pair_keys)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     root_dir = Path(__file__).resolve().parent.parent
-    results_dir = root_dir / "data"
+    results_dir = root_dir / "data" / "benchmark_team"
     composition_dir = results_dir / "team_composition"
     results_dir.mkdir(parents=True, exist_ok=True)
 

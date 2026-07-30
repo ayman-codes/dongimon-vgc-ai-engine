@@ -82,20 +82,20 @@ class TestCreateArchetypeBuilds:
         assert "Fast Special Sweeper" in archetype_names
 
     def test_base_number_of_builds(self):
-        """Standard species gets 6 builds (no mixed attacker bonus)."""
+        """Standard species gets 11 builds (no mixed attacker bonus)."""
         tackle = _make_dummy_move()
         species = _make_dummy_species("StandardMon", atk=100, spa=50, moves=[tackle])
         moves = [tackle]
         builds = create_archetype_builds(species, moves)
-        assert len(builds) == 6
+        assert len(builds) == 11
 
     def test_mixed_attacker_gets_extra_builds(self):
-        """Balanced Atk/SpA species gets 10 builds (4 extra mixed)."""
+        """Balanced Atk/SpA species gets 15 builds (4 extra mixed)."""
         tackle = _make_dummy_move()
         species = _make_dummy_species("MixedMon", atk=80, spa=80, moves=[tackle])
         moves = [tackle]
         builds = create_archetype_builds(species, moves)
-        assert len(builds) == 10
+        assert len(builds) == 15
 
     def test_fast_sweeper_has_252_speed_evs(self):
         """Fast Sweeper builds have 252 Speed EVs."""

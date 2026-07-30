@@ -13,6 +13,7 @@ Resume after crash:
 """
 
 import argparse
+import gc
 import json
 import sys
 import time
@@ -286,6 +287,8 @@ def run_pipeline(
             "bst_delta": bst_delta,
             "features": pair_feats,
         })
+
+        gc.collect()
 
         if len(buffer) >= flush_interval:
             _save_jsonl_append(buffer, jsonl_path)

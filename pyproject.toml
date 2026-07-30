@@ -28,6 +28,8 @@ dev = [
     "optuna>=3.6",
     "scipy>=1.12",
     "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "scikit-learn>=1.4",
 ]
 
 [tool.ruff]
@@ -48,6 +50,8 @@ select = [
 ignore = [
     "T201",  
     "N802",   
+    "N803",
+    "N806",
     "S101",  
 ]
 

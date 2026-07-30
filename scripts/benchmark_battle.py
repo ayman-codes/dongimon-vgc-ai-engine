@@ -165,7 +165,7 @@ def main() -> None:
     total_matchups = args.n_matches * n_players * (n_players - 1) // 2
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    results_dir = os.path.join(os.path.dirname(__file__), "..", "data", "benchmark_battle")
     os.makedirs(results_dir, exist_ok=True)
 
     battle_log_path = os.path.join(results_dir, f"battle_log_{timestamp}.jsonl")
