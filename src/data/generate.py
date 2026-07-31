@@ -288,9 +288,8 @@ def run_pipeline(
             "features": pair_feats,
         })
 
-        gc.collect()
-
         if len(buffer) >= flush_interval:
+            gc.collect()
             _save_jsonl_append(buffer, jsonl_path)
             buffer.clear()
             _save_checkpoint(

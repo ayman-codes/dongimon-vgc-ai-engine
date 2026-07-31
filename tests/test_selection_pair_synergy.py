@@ -1,14 +1,15 @@
 """Tests for the analytical pair-synergy scorer and the selection fast path.
 
 Covers the four teamwork terms in ``src.selection.pair_synergy`` and the
-pure-ordering fast path in ``DongimonSelectionPolicy`` that activates when
-the team is already final size (no subset to choose, only which pair starts
-active). Fixtures use real ``PokemonSpecies`` / ``Move`` objects so the
-type-effectiveness and fitness-operator code paths run for real.
+MP-based pure-ordering fast path in ``DongimonSelectionPolicy`` that
+activates when the team is already final size (no subset to choose, only
+which pair starts active). Fixtures use real ``PokemonSpecies`` / ``Move``
+objects so the type-effectiveness and fitness-operator code paths run for real.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from vgc2.battle_engine.modifiers import Category, Type
 from vgc2.battle_engine.move import Move
@@ -260,8 +261,27 @@ class TestSelectionSynergyConfig:
         assert weights.worst_weight == pytest.approx(0.4)
 
 
+class _MockModel:
+    """Mock classifier returning a fixed probability."""
+
+    def __init__(self, prob: float = 0.6) -> None:
+        self._prob = prob
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Return fixed probability for all inputs.
+
+        Args:
+            X: Feature array of shape (n, 56).
+
+        Returns:
+            Array of shape (n, 2) with [1-prob, prob].
+        """
+        n = X.shape[0]
+        return np.array([[1.0 - self._prob, self._prob]] * n)
+
+
 class TestFastPathOrdering:
-    """Tests for the pure-ordering fast path in DongimonSelectionPolicy."""
+    """Tests for the analytical pair-synergy fast path in DongimonSelectionPolicy."""
 
     def _grass_field_team(self) -> MagicMock:
         """An opponent view of four Grass-types.
@@ -271,8 +291,10 @@ class TestFastPathOrdering:
         """
         return _make_team([_grass_species(f"G{i}") for i in range(4)])
 
-    def test_returns_valid_permutation(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_returns_valid_permutation(self, mock_load: MagicMock) -> None:
         """Fast path returns every index exactly once, capped at max_size."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team(
             [_fire_species("F1"), _fire_species("F2"), _make_species("N1"), _make_species("N2")]
         )
@@ -281,8 +303,10 @@ class TestFastPathOrdering:
         ordered = policy.decision((my_team, opp_team), 4)
         assert sorted(ordered) == [0, 1, 2, 3]
 
-    def test_active_pair_size_two(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_active_pair_size_two(self, mock_load: MagicMock) -> None:
         """The first two returned indices form the active pair."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team(
             [_fire_species("F1"), _fire_species("F2"), _make_species("N1"), _make_species("N2")]
         )
@@ -292,7 +316,8 @@ class TestFastPathOrdering:
         assert len(ordered) == 4
         assert len(set(ordered[:2])) == 2
 
-    def test_prefers_strong_super_effective_pair(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_prefers_strong_super_effective_pair(self, mock_load: MagicMock) -> None:
         """The pair with strong super-effective moves starts active.
 
         All four members are Fire-types with identical stats so the
@@ -300,6 +325,7 @@ class TestFastPathOrdering:
         the matchup and coverage terms differ. The two carrying strong
         STAB Fire moves must therefore be chosen as the active pair.
         """
+        mock_load.return_value = _MockModel(prob=0.6)
         weak = [_make_move("WeakFire", pkm_type=Type.FIRE, base_power=30, category=Category.SPECIAL)]
         my_team = _make_team(
             [
@@ -314,8 +340,10 @@ class TestFastPathOrdering:
         ordered = policy.decision((my_team, opp_team), 4)
         assert set(ordered[:2]) == {0, 1}
 
-    def test_reserves_are_remaining_members(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_reserves_are_remaining_members(self, mock_load: MagicMock) -> None:
         """Reserve indices are exactly the non-active members."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team(
             [_fire_species("F1"), _fire_species("F2"), _make_species("N1"), _make_species("N2")]
         )
@@ -324,8 +352,10 @@ class TestFastPathOrdering:
         ordered = policy.decision((my_team, opp_team), 4)
         assert set(ordered[2:]) == set(range(4)) - set(ordered[:2])
 
-    def test_deterministic(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_deterministic(self, mock_load: MagicMock) -> None:
         """The same inputs produce the same ordering across calls."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team(
             [_fire_species("F1"), _fire_species("F2"), _make_species("N1"), _make_species("N2")]
         )
@@ -335,24 +365,30 @@ class TestFastPathOrdering:
         second = policy.decision((my_team, opp_team), 4)
         assert first == second
 
-    def test_empty_own_team_raises(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_empty_own_team_raises(self, mock_load: MagicMock) -> None:
         """An empty own team raises RuntimeError."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team([])
         opp_team = self._grass_field_team()
         policy = DongimonSelectionPolicy()
         with pytest.raises(RuntimeError):
             policy.decision((my_team, opp_team), 4)
 
-    def test_empty_opponent_raises(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_empty_opponent_raises(self, mock_load: MagicMock) -> None:
         """An empty opponent view raises RuntimeError."""
+        mock_load.return_value = _MockModel(prob=0.6)
         my_team = _make_team([_fire_species("F1"), _fire_species("F2")])
         opp_team = _make_team([])
         policy = DongimonSelectionPolicy()
         with pytest.raises(RuntimeError):
             policy.decision((my_team, opp_team), 4)
 
-    def test_custom_weights_are_used(self) -> None:
+    @patch("src.selection.policy.load_mp_model")
+    def test_custom_weights_are_used(self, mock_load: MagicMock) -> None:
         """Injecting matchup-only weights still picks the strong-move pair."""
+        mock_load.return_value = _MockModel(prob=0.6)
         weights = SelectionSynergyWeights(
             w_matchup=1.0, w_defense=0.0, w_speed=0.0, w_role=0.0, w_coverage=0.0
         )

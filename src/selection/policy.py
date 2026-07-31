@@ -1,15 +1,23 @@
 """Selection Policy — Team Preview decision-making.
 
 Runs the full pipeline: predict opponent builds from species views,
-then score all 4-Pokemon rosters via a damage-ratio matrix with coverage
-balance, pre-filter to the top candidates, and simulate only those via
-pair-vs-pair sub-tournament for the final ranking.
+then score all 4-Pokemon rosters via the MP model, pre-filter to the
+top candidates, and either rank pairs by MP P(win) directly (mp_only)
+or validate via pair-vs-pair sub-tournament simulation (mp_sim).
+
+When the team is already final size (no subset to choose), a fast
+analytical pair-synergy path orders the pair without MP or simulation.
+
+Supports two selection modes:
+    - mp_only: MP model scoring for rosters and pairs (default, fastest).
+    - mp_sim: MP model pre-filter + sub-tournament simulation validation.
 
 Failures are never swallowed: missing data or zero completed sims raise
 RuntimeError so selection bugs surface immediately.
 """
 
 import itertools
+from pathlib import Path
 from typing import Any
 
 from vgc2.agent import SelectionPolicy
@@ -19,6 +27,7 @@ from vgc2.battle_engine.modifiers import Category, Stat
 
 from src.config.loader import load_selection_synergy
 from src.config.models import SelectionSynergyWeights
+from src.selection.mp_scoring import load_mp_model, score_pair_mp, score_roster_mp
 from src.selection.pair_synergy import pair_synergy_terms
 from src.selection.prediction import predict_opponent_builds
 from src.selection.tournament import generate_team_combinations, run_sub_tournament
@@ -26,39 +35,59 @@ from src.shared.types import type_effectiveness, vgc2_type_to_name
 
 N_TOP_CANDIDATES = 5
 
-_INDIVIDUAL_WEIGHT = 1.07
-_BULK_WEIGHT = 0.42
-_BALANCE_WEIGHT = 0.30
 _MATCHUP_NORM = 2.0
 
 
 class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
-    """Team Preview selection using matrix pre-filter + simulation.
+    """Team Preview selection using MP model scoring.
 
-    Generates all C(n, max_size) rosters, scores each via a damage-proxy
-    matrix, keeps the top N, evaluates pairs with sub-tournament sims, and
-    returns best pair first (active) then remaining roster (reserve).
+    Generates all C(n, max_size) rosters, scores each via the MP model,
+    keeps the top N, then either ranks pairs by MP P(win) directly
+    (mp_only) or validates via sub-tournament simulation (mp_sim).
+    Returns best pair first (active) then remaining roster (reserve).
+
+    When the team is already final size (<= max_size), a fast analytical
+    pair-synergy path orders the active pair without MP or simulation.
 
     Pair ranking: win rate, then pair damage proxy, then pair BST.
+
+    Selection modes:
+        mp_only: MP model scoring for rosters and pairs (default, fastest).
+        mp_sim: MP model pre-filter + sub-tournament simulation validation.
     """
 
     def __init__(
         self,
         n_top_candidates: int = N_TOP_CANDIDATES,
         synergy_weights: SelectionSynergyWeights | None = None,
+        selection_mode: str = "mp_only",
+        mp_model_path: Path | None = None,
     ) -> None:
         """Initialize the selection policy.
 
         Args:
-            n_top_candidates: Number of top rosters to simulate (full path).
+            n_top_candidates: Number of top rosters to simulate (mp_sim path).
             synergy_weights: Optional pair-synergy weights for the fast path.
                 Loads from selection_synergy.yaml if None.
+            selection_mode: One of "mp_only" (default) or "mp_sim".
+            mp_model_path: Path to the MP XGBoost model. Uses default
+                champion model if None.
+
+        Raises:
+            ValueError: If selection_mode is not recognized.
         """
         super().__init__()
+        valid_modes = ("mp_only", "mp_sim")
+        if selection_mode not in valid_modes:
+            raise ValueError(
+                f"selection_mode must be one of {valid_modes}, got {selection_mode!r}"
+            )
         self._battle_policy = GreedyBattlePolicy()
         self._n_active = 2
         self._n_top = n_top_candidates
         self._synergy = synergy_weights or load_selection_synergy()
+        self._mode = selection_mode
+        self._mp_model: Any = load_mp_model(mp_model_path)
 
     def decision(self, teams: tuple[Team, Team], max_size: int) -> list[int]:
         """Select the best roster ordered as best active pair then reserves.
@@ -114,11 +143,23 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
 
         roster_scores: list[tuple[float, tuple[int, ...]]] = []
         for roster in all_rosters:
-            score = self._score_roster_matrix(roster, my_full_team, opp_views)
+            score = score_roster_mp(
+                roster_indices=roster,
+                my_full_team=my_full_team,
+                predicted_builds=predicted_builds,
+                opp_views=opp_views,
+                model=self._mp_model,
+                n_active=self._n_active,
+            )
             roster_scores.append((score, roster))
 
         roster_scores.sort(key=lambda x: x[0], reverse=True)
         candidates = roster_scores[: max(self._n_top, 1)]
+
+        if self._mode == "mp_only":
+            return self._select_mp_only(
+                candidates, my_full_team, predicted_builds, opp_views, max_size
+            )
 
         my_pairs = generate_team_combinations(my_full_team, self._n_active)
         if not my_pairs:
@@ -270,6 +311,138 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                 ordered.append(idx)
         return ordered[:max_size]
 
+    def _order_by_mp(
+        self,
+        my_full_team: Team,
+        opp_views: list[Any],
+        max_size: int,
+    ) -> list[int]:
+        """Order a final-size team by MP pair scoring (no simulation).
+
+        Fast path for the pure-ordering case: the team already has exactly
+        max_size members, so there is no subset to choose — only which pair
+        starts active. Ranks all C(n, 2) candidate pairs by MP P(win)
+        averaged over opponent pairs, returning the best pair first
+        followed by the reserves.
+
+        Requires predicted builds for the opponent, which are generated
+        inline from the opponent views.
+
+        Args:
+            my_full_team: Our full team (size <= max_size).
+            opp_views: Opponent PokemonView list.
+            max_size: Maximum team size to return.
+
+        Returns:
+            Ordered indices: best active pair first, then reserves.
+
+        Raises:
+            RuntimeError: If no candidate pairs or opponent predictions fail.
+        """
+        predicted_builds: dict[Any, list[Any]] = {}
+        for opp_view in opp_views:
+            builds = predict_opponent_builds(
+                pokemon_view=opp_view,
+                my_full_team=my_full_team,
+                all_opp_views=opp_views,
+                params=self.params,
+            )
+            if not builds:
+                raise RuntimeError(
+                    "selection.mp_fast_path: predict_opponent_builds returned empty "
+                    f"for opponent species id={getattr(getattr(opp_view, 'species', None), 'id', '?')}"
+                )
+            predicted_builds[opp_view] = builds
+
+        roster_indices = tuple(range(len(my_full_team.members)))
+        my_pairs = generate_team_combinations(my_full_team, self._n_active)
+        if not my_pairs:
+            raise RuntimeError(
+                f"selection.mp_fast_path: no pairs of size {self._n_active} from "
+                f"team size {len(my_full_team.members)}"
+            )
+
+        scored: list[tuple[float, tuple[int, ...]]] = []
+        for my_pair in my_pairs:
+            pair_score = score_pair_mp(
+                pair_indices=my_pair,
+                roster_indices=roster_indices,
+                my_full_team=my_full_team,
+                predicted_builds=predicted_builds,
+                opp_views=opp_views,
+                model=self._mp_model,
+            )
+            scored.append((pair_score, my_pair))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_pair = scored[0][1]
+
+        ordered: list[int] = [int(i) for i in best_pair]
+        for idx in range(len(my_full_team.members)):
+            if idx not in ordered:
+                ordered.append(idx)
+        return ordered[:max_size]
+
+    def _select_mp_only(
+        self,
+        candidates: list[tuple[float, tuple[int, ...]]],
+        my_full_team: Team,
+        predicted_builds: dict[Any, list[Any]],
+        opp_views: list[Any],
+        max_size: int,
+    ) -> list[int]:
+        """Select best roster and pair using MP scoring only (no simulation).
+
+        For each candidate roster, scores all C(4,2) pairs via MP P(win)
+        and picks the roster+pair combination with the highest score.
+
+        Args:
+            candidates: Pre-filtered rosters with MP scores (sorted desc).
+            my_full_team: Our full team.
+            predicted_builds: Dict mapping opponent views to predicted builds.
+            opp_views: Opponent PokemonView list.
+            max_size: Maximum team size to return.
+
+        Returns:
+            Ordered indices: best pair first, then remaining roster members.
+
+        Raises:
+            RuntimeError: If no pairs can be scored.
+        """
+        best_score = -1.0
+        best_pair: tuple[int, ...] = ()
+        best_roster: tuple[int, ...] = ()
+
+        for _, roster in candidates:
+            my_pairs = list(itertools.combinations(roster, self._n_active))
+            for my_pair in my_pairs:
+                pair_score = score_pair_mp(
+                    pair_indices=my_pair,
+                    roster_indices=roster,
+                    my_full_team=my_full_team,
+                    predicted_builds=predicted_builds,
+                    opp_views=opp_views,
+                    model=self._mp_model,
+                )
+                if pair_score > best_score:
+                    best_score = pair_score
+                    best_pair = my_pair
+                    best_roster = roster
+
+        if not best_pair:
+            raise RuntimeError(
+                "selection.mp_only: no valid pair found across all candidates"
+            )
+
+        ordered: list[int] = [int(i) for i in best_pair]
+        remaining = [int(i) for i in best_roster if int(i) not in ordered]
+        remaining.sort(
+            key=lambda i: sum(my_full_team.members[i].species.base_stats),
+            reverse=True,
+        )
+        ordered.extend(remaining)
+        return ordered[:max_size]
+
     def _pair_damage_score(
         self,
         pair: tuple[int, ...],
@@ -311,51 +484,6 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
             base = member.species.base_stats
             total += float(sum(base))
         return total
-
-    def _score_roster_matrix(
-        self,
-        roster: tuple[int, ...],
-        my_full_team: Team,
-        opp_views: list[Any],
-    ) -> float:
-        """Score a roster using damage-ratio estimation.
-
-        Args:
-            roster: Tuple of indices into my_full_team.
-            my_full_team: Our full team.
-            opp_views: Opponent PokemonView list.
-
-        Returns:
-            Float score (higher = better matchup).
-        """
-        n_opp = len(opp_views)
-        if n_opp == 0:
-            raise RuntimeError("_score_roster_matrix: empty opp_views")
-
-        damage_per_opp = [0.0] * n_opp
-        total_individual = 0.0
-
-        for my_idx in roster:
-            member = my_full_team.members[my_idx]
-            member_spec = member.species if hasattr(member, "species") else member
-
-            individual_score = 0.0
-            for opp_idx, opp_view in enumerate(opp_views):
-                ratio = self._max_damage_ratio(member_spec, opp_view)
-                individual_score += ratio
-                damage_per_opp[opp_idx] += ratio
-
-            total_individual += _INDIVIDUAL_WEIGHT * individual_score
-            total_individual += _BULK_WEIGHT * self._defensive_multiplier(member)
-
-        max_dmg = max(damage_per_opp) if damage_per_opp else 0.0
-        if max_dmg > 0:
-            min_dmg = min(damage_per_opp)
-            balance = 1.0 - (max_dmg - min_dmg) / max_dmg
-        else:
-            balance = 0.0
-
-        return total_individual + _BALANCE_WEIGHT * balance
 
     @staticmethod
     def _max_damage_ratio(my_species: Any, opp_view: Any) -> float:
@@ -415,25 +543,3 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
                 best_ratio = ratio
 
         return best_ratio
-
-    @staticmethod
-    def _defensive_multiplier(pkm: Any) -> float:
-        """Compute a normalised bulk estimate for a Pokemon.
-
-        Args:
-            pkm: A Pokemon member from the team.
-
-        Returns:
-            Float bulk multiplier (higher = bulkier).
-        """
-        if hasattr(pkm, "stats"):
-            hp = pkm.stats[Stat.MAX_HP]
-            df = pkm.stats[Stat.DEFENSE]
-            spd = pkm.stats[Stat.SPECIAL_DEFENSE]
-        elif hasattr(pkm, "base_stats"):
-            hp = pkm.base_stats[Stat.MAX_HP]
-            df = pkm.base_stats[Stat.DEFENSE]
-            spd = pkm.base_stats[Stat.SPECIAL_DEFENSE]
-        else:
-            return 1.0
-        return float(hp / 402.0) * float(df / 257.0) * float(spd / 257.0)

@@ -85,17 +85,18 @@ class _GreedyBaseline:
         self.selectionpolicy = BasicSelectionPolicy()
         self.battlepolicy = GreedyBattlePolicy()
 
-    def build_team(self, roster: list[Any], rng: np.random.Generator) -> Team:
+    def build_team(self, roster: list[Any], rng: np.random.Generator, build_size: int = MAX_TEAM_SIZE) -> Team:
         """Pick random species and hydrate with random spreads.
 
         Args:
             roster: Shared species roster for the round.
             rng: Seeded RNG for reproducible builds.
+            build_size: Number of team members to build.
 
         Returns:
-            A randomly constructed Team of size up to MAX_TEAM_SIZE.
+            A randomly constructed Team of size up to build_size.
         """
-        indices = rng.choice(len(roster), size=min(MAX_TEAM_SIZE, len(roster)), replace=False)
+        indices = rng.choice(len(roster), size=min(build_size, len(roster)), replace=False)
         members = []
         for idx in indices:
             species = roster[int(idx)]
@@ -386,6 +387,7 @@ def _build_team_for(
     competitor: Any,
     roster: list[Any],
     rng: np.random.Generator,
+    build_size: int = MAX_TEAM_SIZE,
 ) -> Team | None:
     """Build a team for a competitor.
 
@@ -394,17 +396,18 @@ def _build_team_for(
         competitor: Competitor instance exposing teambuildpolicy when applicable.
         roster: Shared species roster.
         rng: Seeded RNG (used by the Greedy baseline).
+        build_size: Number of team members to build.
 
     Returns:
         Built Team, or None if teambuild failed.
     """
     if name == "Greedy":
         baseline = _GreedyBaseline()
-        return baseline.build_team(roster, rng)
+        return baseline.build_team(roster, rng, build_size)
 
     try:
         commands = sanitized_team_build_decision(
-            competitor.teambuildpolicy, roster, None, MAX_TEAM_SIZE, MAX_MOVES, N_ACTIVE
+            competitor.teambuildpolicy, roster, None, build_size, MAX_MOVES, N_ACTIVE
         )
         if not commands:
             return None
@@ -629,24 +632,59 @@ def main() -> None:
         help="Shared battle policy for both sides (greedy|dongimon)",
     )
     parser.add_argument(
+        "--build-size",
+        type=int,
+        default=MAX_TEAM_SIZE,
+        help="Number of team members to build (default: 4). Use 6 to exercise full selection.",
+    )
+    parser.add_argument(
+        "--selection-mode",
+        type=str,
+        default="mp_only",
+        choices=["mp_only", "mp_sim"],
+        help="Dongimon selection mode (mp_only|mp_sim)",
+    )
+    parser.add_argument(
         "--save-teams",
         action="store_true",
         default=False,
         help="Save full team+selection dumps under data/team_composition/",
     )
+    parser.add_argument(
+        "--n-top",
+        type=int,
+        default=None,
+        help="Override N_TOP_CANDIDATES for Dongimon selection (default: policy default=5)",
+    )
+    parser.add_argument(
+        "--opponents",
+        type=str,
+        default="",
+        help="Comma-separated opponent filter (e.g. 'JJJ,caaaden'). Default: all.",
+    )
     args = parser.parse_args()
     battle_policy_name = args.battle_policy.strip().lower()
 
-    player_names = [p[0] for p in _PLAYER_ROSTER]
+    active_roster = _PLAYER_ROSTER
+    if args.opponents:
+        keep = {s.strip() for s in args.opponents.split(",")}
+        keep.add("Dongimon")
+        active_roster = [(n, c) for n, c in _PLAYER_ROSTER if n in keep]
+
+    player_names = [p[0] for p in active_roster]
     n_players = len(player_names)
     params = BattleRuleParam()
     shared_battle_policy = _make_battle_policy(battle_policy_name)
 
     competitors: dict[str, Any] = {}
     weights_dict = load_battle_weights().model_dump()
-    for name, cls in _PLAYER_ROSTER:
+    for name, cls in active_roster:
         if name == "Dongimon":
-            competitors[name] = DongimonCompetitor(custom_weights=weights_dict)
+            competitors[name] = DongimonCompetitor(
+                custom_weights=weights_dict,
+                selection_mode=args.selection_mode,
+                n_top_candidates=args.n_top,
+            )
         elif name == "Greedy":
             competitors[name] = _GreedyBaseline()
         else:
@@ -680,6 +718,8 @@ def main() -> None:
     print(f"  seed={args.seed}, n_rounds={args.n_rounds}, n_battles={args.n_battles}")
     print(f"  players: {', '.join(player_names)}")
     print(f"  roster: {ROSTER_SIZE} species, {MOVESET_SIZE} moves")
+    print(f"  build_size: {args.build_size}, select_size: {MAX_TEAM_SIZE}")
+    print(f"  selection_mode: {args.selection_mode}")
     print(f"  total matchups: {total_matchups}")
     print(f"  battles per pair (total): {args.n_rounds * args.n_battles}")
     print(f"  battle_policy: {battle_policy_name}")
@@ -702,7 +742,7 @@ def main() -> None:
         for name in player_names:
             build_rng = np.random.default_rng(round_seed + (sum(ord(c) for c in name) % 10_000))
             t_build = time.perf_counter()
-            teams[name] = _build_team_for(name, competitors[name], roster, build_rng)
+            teams[name] = _build_team_for(name, competitors[name], roster, build_rng, args.build_size)
             build_times[name] = time.perf_counter() - t_build
 
         if args.save_teams:
@@ -930,6 +970,9 @@ def main() -> None:
         "n_battles_per_pair_per_round": args.n_battles,
         "total_battles_per_pair": args.n_rounds * args.n_battles,
         "battle_policy": battle_policy_name,
+        "build_size": args.build_size,
+        "select_size": MAX_TEAM_SIZE,
+        "selection_mode": args.selection_mode,
         "roster_size": ROSTER_SIZE,
         "moveset_size": MOVESET_SIZE,
         "bootstrap_n": N_BOOTSTRAP,

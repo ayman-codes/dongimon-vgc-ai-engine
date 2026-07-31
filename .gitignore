@@ -14,6 +14,10 @@ repo_wiki_full.md
 .cursor/
 .cursor/*
 
+# models
+models/
+models/*
+
 # Tool caches
 .mypy_cache/
 .pytest_cache/
