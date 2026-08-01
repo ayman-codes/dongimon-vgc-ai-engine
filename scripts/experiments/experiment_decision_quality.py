@@ -34,12 +34,9 @@ from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
 from competitor import DongimonCompetitor
-from scripts.experiments.experiment_utils import (
-    compute_pairwise_features,
-    compute_subteam_features,
-    run_pair_battles,
-)
+from scripts.experiments.experiment_utils import run_pair_battles
 from src.config.loader import load_battle_weights
+from src.data.features import compute_pairwise_features, compute_subteam_features
 
 
 def _load_model(model_path: Path) -> dict[str, Any]:
@@ -70,7 +67,7 @@ def _extract_features_mp(
     subteam_members: list[Any],
     opp_members: list[Any],
     feature_names: list[str],
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """Extract pairwise features for MP model inference.
 
     Args:
@@ -88,7 +85,7 @@ def _extract_features_mp(
 def _extract_features_tqs(
     team_members: list[Any],
     feature_names: list[str],
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """Extract single-team features for TQS model inference.
 
     Args:

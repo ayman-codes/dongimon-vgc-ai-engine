@@ -75,6 +75,13 @@ def _dongimon_bp_factory() -> Any:
     return DongimonCompetitor().battlepolicy
 
 
+def _greedy_dongi_bp_factory() -> Any:
+    """Return a fresh GreedyDongi net-damage policy instance."""
+    from src.battle.greedy_dongi import GreedyDongiPolicy
+
+    return GreedyDongiPolicy()
+
+
 def _tree_bc_bp_factory() -> Any:
     """Return a TreeBC XGBoost battle policy wrapper.
 
@@ -101,12 +108,15 @@ def _build_roster() -> list[tuple[str, Any]]:
         ("minimon", "competitors.competitor2_minimon", "minimon"),
         ("caaaden", "competitors.competitor_caaaden", "CaaadenCompetitor"),
         ("Dongimon", "competitor", "DongimonCompetitor"),
+        ("GreedyDongi", "", ""),
     ]
 
     roster: list[tuple[str, Any]] = []
     for name, mod_path, cls_name in candidates:
         if name == "Greedy":
             roster.append((name, _greedy_bp_factory))
+        elif name == "GreedyDongi":
+            roster.append((name, _greedy_dongi_bp_factory))
         else:
             factory = _try_import_bp(mod_path, cls_name)
             if factory is not None:

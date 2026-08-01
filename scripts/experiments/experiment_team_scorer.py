@@ -40,7 +40,6 @@ from xgboost import XGBRegressor
 from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import (
     bootstrap_ci,
-    compute_subteam_features,
     discover_latest_jsonl,
     fit_bradley_terry,
     generate_ga_only_teams,
@@ -52,6 +51,7 @@ from scripts.experiments.experiment_utils import (
     validate_stratification,
 )
 from src.config.loader import load_battle_weights
+from src.data.features import compute_subteam_features
 
 STAT_FEATURE_COUNT = 28
 NO_STAT_START = STAT_FEATURE_COUNT
@@ -60,7 +60,7 @@ NO_STAT_START = STAT_FEATURE_COUNT
 def _per_team_raw_win_rates(
     pair_outcomes: list[tuple[int, int, int, int]],
     n_teams: int,
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """Compute raw win rate per team from all pair outcomes.
 
     Args:
@@ -84,7 +84,7 @@ def _per_team_raw_win_rates(
     return wr
 
 
-def _residualize(theta: np.ndarray, bst_avg: np.ndarray) -> tuple[np.ndarray, float]:
+def _residualize(theta: np.ndarray[Any, Any], bst_avg: np.ndarray[Any, Any]) -> tuple[np.ndarray[Any, Any], float]:
     """Residualize BT strengths against bst_avg via OLS.
 
     Args:
@@ -104,7 +104,7 @@ def _residualize(theta: np.ndarray, bst_avg: np.ndarray) -> tuple[np.ndarray, fl
 
 def _compute_all_team_features(
     teams: list[Any],
-) -> tuple[np.ndarray, list[str], list[int], list[int]]:
+) -> tuple[np.ndarray[Any, Any], list[str], list[int], list[int]]:
     """Compute feature matrix for all teams.
 
     Args:
@@ -181,12 +181,12 @@ def _species_disjoint_split(
 
 def _evaluate_model(
     model: Any,
-    x_train: np.ndarray,
-    y_train: np.ndarray,
-    x_test: np.ndarray,
-    y_test: np.ndarray,
-    x_quarantine: np.ndarray,
-    y_quarantine: np.ndarray,
+    x_train: np.ndarray[Any, Any],
+    y_train: np.ndarray[Any, Any],
+    x_test: np.ndarray[Any, Any],
+    y_test: np.ndarray[Any, Any],
+    x_quarantine: np.ndarray[Any, Any],
+    y_quarantine: np.ndarray[Any, Any],
     n_bootstrap: int = 1000,
     seed: int = 42,
 ) -> dict[str, Any]:
@@ -213,7 +213,7 @@ def _evaluate_model(
     r2_test_val = r2_score(y_test, y_pred_test)
     r2_quar_val = r2_score(y_quarantine, y_pred_quarantine)
 
-    def _r2_fn(t: np.ndarray, p: np.ndarray) -> float:
+    def _r2_fn(t: np.ndarray[Any, Any], p: np.ndarray[Any, Any]) -> float:
         return float(r2_score(t, p))
 
     _, ci_lo_test, ci_hi_test = bootstrap_ci(
@@ -232,13 +232,13 @@ def _evaluate_model(
 
 
 def _ablation_track(
-    x_full: np.ndarray,
-    y_full: np.ndarray,
+    x_full: np.ndarray[Any, Any],
+    y_full: np.ndarray[Any, Any],
     col_indices: list[int],
-    x_test: np.ndarray,
-    y_test: np.ndarray,
-    x_quarantine: np.ndarray,
-    y_quarantine: np.ndarray,
+    x_test: np.ndarray[Any, Any],
+    y_test: np.ndarray[Any, Any],
+    x_quarantine: np.ndarray[Any, Any],
+    y_quarantine: np.ndarray[Any, Any],
     n_folds: int = 5,
     n_bootstrap: int = 1000,
     seed: int = 42,
@@ -295,7 +295,7 @@ def _ablation_track(
     r2_test_val = r2_score(y_test, y_pred_test)
     r2_quar_val = r2_score(y_quarantine, y_pred_quarantine)
 
-    def _r2_fn(t: np.ndarray, p: np.ndarray) -> float:
+    def _r2_fn(t: np.ndarray[Any, Any], p: np.ndarray[Any, Any]) -> float:
         return float(r2_score(t, p))
 
     _, ci_lo_t, ci_hi_t = bootstrap_ci(

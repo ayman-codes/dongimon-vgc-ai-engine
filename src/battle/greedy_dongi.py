@@ -30,8 +30,8 @@ def _simulate_our_attacks(
     defenders: list[BattlingPokemonView],
     sources: tuple[int, ...],
     targets: tuple[int, ...],
-) -> tuple[int, int]:
-    """Simulate our joint attack and return (damage_dealt, opp_kos).
+) -> tuple[int, int, list[int]]:
+    """Simulate our joint attack and return (damage_dealt, opp_kos, opp_hp_after).
 
     Sequential HP tracking: if both Pokemon target the same defender,
     the second hit is computed against reduced HP (focus fire emerges).
@@ -45,13 +45,14 @@ def _simulate_our_attacks(
         targets: Target index chosen per attacker slot.
 
     Returns:
-        Tuple of (total_damage_dealt, number_of_opponent_kos).
+        Tuple of (total_damage_dealt, number_of_opponent_kos,
+        remaining HP per defender after our attacks).
     """
     damage = 0
     kos = 0
     hp = [d.hp for d in defenders]
 
-    for i, (source, target) in enumerate(zip(sources, targets)):
+    for i, (source, target) in enumerate(zip(sources, targets, strict=True)):
         attacker = attackers[i]
         move = attacker.battling_moves[source]
         if move.pp <= 0 or move.disabled:
@@ -67,7 +68,7 @@ def _simulate_our_attacks(
         if hp[target] <= 0:
             kos += 1
 
-    return damage, kos
+    return damage, kos, hp
 
 
 def _simulate_opponent_response(
@@ -75,18 +76,23 @@ def _simulate_opponent_response(
     state: StateView,
     our_active: list[BattlingPokemonView],
     opp_active: list[BattlingPokemonView],
+    opp_hp_after: list[int],
 ) -> tuple[int, int]:
     """Simulate opponent Greedy response and return (damage_taken, our_kos).
 
-    Assumes opponent plays Greedy: each opponent Pokemon picks its
-    highest-damage move against each of our Pokemon. Sequential HP
+    Assumes opponent plays Greedy: each surviving opponent Pokemon picks
+    its highest-damage move against each of our Pokemon. Sequential HP
     tracking applied (opponent focus fire emerges naturally).
+
+    Only opponents still alive after our attacks (opp_hp_after > 0)
+    get to respond. This conditions the response on our chosen action.
 
     Args:
         params: Battle rule parameters for damage calculation.
         state: Current battle state view.
         our_active: Our active Pokemon list.
         opp_active: Opponent active Pokemon list.
+        opp_hp_after: Remaining HP per opponent after our attacks.
 
     Returns:
         Tuple of (total_damage_taken, number_of_our_pokemon_koed).
@@ -95,8 +101,8 @@ def _simulate_opponent_response(
     kos = 0
     hp = [p.hp for p in our_active]
 
-    for opp in opp_active:
-        if opp.hp <= 0:
+    for opp_idx, opp in enumerate(opp_active):
+        if opp.hp <= 0 or opp_hp_after[opp_idx] <= 0:
             continue
         best_dmg = 0
         best_target = 0
@@ -167,17 +173,17 @@ class GreedyDongiPolicy(BattlePolicy):  # type: ignore[misc]
 
         for sources in product(*move_ranges):
             for targets in product(target_range, repeat=len(attackers)):
-                dmg_dealt, opp_kos = _simulate_our_attacks(
+                dmg_dealt, opp_kos, opp_hp_after = _simulate_our_attacks(
                     self.params, state, attackers, defenders, sources, targets,
                 )
                 dmg_taken, our_kos = _simulate_opponent_response(
-                    self.params, state, attackers, defenders,
+                    self.params, state, attackers, defenders, opp_hp_after,
                 )
 
                 score = (opp_kos, -our_kos, dmg_dealt - dmg_taken)
 
                 if best_score is None or score > best_score:
                     best_score = score
-                    best_cmds = list(zip(sources, targets))
+                    best_cmds = list(zip(sources, targets, strict=True))
 
         return best_cmds

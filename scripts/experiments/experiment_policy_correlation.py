@@ -32,12 +32,12 @@ from vgc2.battle_engine import BattleRuleParam
 from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import (
     attenuation_corrected_rho,
-    compute_subteam_features,
     generate_stratified_teams,
     profile_teams,
     run_pair_battles,
 )
 from src.config.loader import load_battle_weights
+from src.data.features import compute_subteam_features
 
 
 def _dongimon_bp() -> Any:

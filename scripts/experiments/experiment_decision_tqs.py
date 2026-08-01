@@ -30,9 +30,9 @@ from vgc2.battle_engine import BattleRuleParam
 from scripts.experiments.experiment_utils import (
     _build_team_from_indices,
     _get_pool,
-    compute_subteam_features,
     run_pair_battles,
 )
+from src.data.features import compute_subteam_features
 from src.teambuild.evolution import run_evolution
 from src.teambuild.operators import calculate_team_fitness
 

@@ -16,7 +16,7 @@ from src.tree_bc.actions import decode_action, get_valid_actions
 from src.tree_bc.encoder import encode_state
 
 
-class TreeBCBattlePolicy(BattlePolicy):
+class TreeBCBattlePolicy(BattlePolicy):  # type: ignore[misc]  # vgc2.agent is untyped (Any)
     """XGBoost behavior-cloning policy with valid-action masking.
 
     Loads the trained XGBoost bundle (model + label inverse map) and

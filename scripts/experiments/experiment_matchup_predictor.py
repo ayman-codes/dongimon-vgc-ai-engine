@@ -36,8 +36,6 @@ from xgboost import XGBRegressor
 
 from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import (
-    compute_pairwise_features,
-    compute_subteam_features,
     discover_latest_jsonl,
     generate_stratified_teams,
     profile_teams,
@@ -45,6 +43,7 @@ from scripts.experiments.experiment_utils import (
     run_pair_battles,
 )
 from src.config.loader import load_battle_weights
+from src.data.features import compute_pairwise_features, compute_subteam_features
 
 
 def _dongimon_bp() -> Any:

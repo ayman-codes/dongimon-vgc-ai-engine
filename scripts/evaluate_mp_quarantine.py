@@ -22,7 +22,7 @@ from sklearn.metrics import roc_auc_score
 RANDOM_STATE = 42
 
 
-def load_jsonl(path: Path) -> tuple[np.ndarray, np.ndarray, list[str]]:
+def load_jsonl(path: Path) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], list[str]]:
     """Load JSONL into features and binary labels.
 
     Args:
