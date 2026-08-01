@@ -139,6 +139,27 @@ def _remap_labels(
     return remapped, inverse_map
 
 
+def _apply_remap(
+    actions: npt.NDArray[np.int32],
+    inverse_map: npt.NDArray[np.int32],
+) -> npt.NDArray[np.int32]:
+    """Remap actions using a pre-built inverse_map from combined data.
+
+    Ensures train and holdout share the same consecutive class indices.
+
+    Args:
+        actions: Original action labels.
+        inverse_map: Mapping from consecutive index to original action.
+
+    Returns:
+        Remapped actions using the shared class space.
+    """
+    mapping: npt.NDArray[np.int32] = np.full(N_CLASSES, -1, dtype=np.int32)
+    for new_idx, orig_idx in enumerate(inverse_map):
+        mapping[orig_idx] = new_idx
+    return mapping[actions]
+
+
 def _remap_masks(
     valid_masks: npt.NDArray[np.bool_],
     inverse_map: npt.NDArray[np.int32],
@@ -275,8 +296,8 @@ def train(
     _, inverse_map = _remap_labels(all_actions)
     n_present = len(inverse_map)
 
-    tr_act_remapped, _ = _remap_labels(tr_act)
-    ho_act_remapped, _ = _remap_labels(ho_act)
+    tr_act_remapped = _apply_remap(tr_act, inverse_map)
+    ho_act_remapped = _apply_remap(ho_act, inverse_map)
 
     tr_mask = _remap_masks(tr_mask, inverse_map)
     ho_mask = _remap_masks(ho_mask, inverse_map)

@@ -7,8 +7,8 @@ in-battle decision quality.
 
 Fully seeded and reproducible: same seed → same teams → same battles.
 
-Players (no Dongimon):
-    Greedy, JJJ, minimon, caaaden
+Players:
+    Greedy, JJJ, minimon, caaaden, Dongimon (heuristic), TreeBC (XGBoost)
 
 Usage:
     uv run python scripts/benchmark_battle.py --seed=42 --n-rounds=5 --n-battles=20
@@ -37,6 +37,7 @@ from src.tuning.elo_rating import update_elo
 
 INITIAL_ELO = 1500.0
 ELO_K = 32.0
+BC_MODEL_PATH = Path(__file__).parent.parent / "src" / "models" / "bc_xgboost_model.joblib"
 
 
 def _try_import_bp(module_path: str, class_name: str) -> Any | None:
@@ -67,6 +68,67 @@ def _greedy_bp_factory() -> Any:
     return GreedyBattlePolicy()
 
 
+def _dongimon_bp_factory() -> Any:
+    """Return the Dongimon heuristic battle policy."""
+    from competitor import DongimonCompetitor
+
+    return DongimonCompetitor().battlepolicy
+
+
+def _tree_bc_bp_factory() -> Any:
+    """Return a TreeBC XGBoost battle policy wrapper.
+
+    Loads the trained XGBoost model and wraps it with valid-action
+    masking inference. Falls back to random valid action if model
+    prediction fails.
+
+    Returns:
+        A policy object with a decision(state, opp_view) method.
+    """
+    import joblib
+
+    from src.tree_bc.actions import decode_action, get_valid_actions
+    from src.tree_bc.encoder import encode_state
+
+    bundle = joblib.load(BC_MODEL_PATH)
+    model = bundle["model"]
+    inverse_map = bundle["inverse_map"]
+
+    class _TreeBCPolicy:
+        """XGBoost BC policy with valid-action masking."""
+
+        def decision(self, state: StateView, opp_view: TeamView | None) -> list:
+            """Predict joint action from encoded state with masking.
+
+            Args:
+                state: Current battle state view (side 0 = own team).
+                opp_view: Opponent team view (unused, kept for interface).
+
+            Returns:
+                List of BattleCommand tuples.
+            """
+            obs = encode_state(state).reshape(1, -1)
+            valid = get_valid_actions(state)
+            if not valid:
+                return [(0, 0), (0, 0)]
+
+            raw_proba = model.predict_proba(obs)[0]
+            n_classes = len(inverse_map)
+            full_proba = np.zeros(100, dtype=np.float64)
+            for new_idx in range(min(n_classes, len(raw_proba))):
+                orig_idx = inverse_map[new_idx]
+                full_proba[orig_idx] = raw_proba[new_idx]
+
+            mask = np.zeros(100, dtype=bool)
+            mask[valid] = True
+            full_proba[~mask] = 0.0
+
+            action_idx = int(full_proba.argmax())
+            return decode_action(action_idx)
+
+    return _TreeBCPolicy()
+
+
 def _build_roster() -> list[tuple[str, Any]]:
     """Build the player roster, skipping unavailable competitors.
 
@@ -78,6 +140,7 @@ def _build_roster() -> list[tuple[str, Any]]:
         ("JJJ", "competitors.competitor1_jjj", "JJJ_Competitor"),
         ("minimon", "competitors.competitor2_minimon", "minimon"),
         ("caaaden", "competitors.competitor_caaaden", "CaaadenCompetitor"),
+        ("Dongimon", "competitor", "DongimonCompetitor"),
     ]
 
     roster: list[tuple[str, Any]] = []
@@ -88,6 +151,12 @@ def _build_roster() -> list[tuple[str, Any]]:
             factory = _try_import_bp(mod_path, cls_name)
             if factory is not None:
                 roster.append((name, factory))
+
+    if BC_MODEL_PATH.exists():
+        roster.append(("TreeBC", _tree_bc_bp_factory))
+    else:
+        print(f"  [WARN] TreeBC model not found at {BC_MODEL_PATH}, skipping")
+
     return roster
 
 
