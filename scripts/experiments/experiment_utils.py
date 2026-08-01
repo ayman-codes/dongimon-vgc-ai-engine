@@ -533,9 +533,9 @@ def run_pair_battles(
 
 
 def bootstrap_ci(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    y_true: np.ndarray[Any, Any],
+    y_pred: np.ndarray[Any, Any],
+    metric_fn: Callable[[np.ndarray[Any, Any], np.ndarray[Any, Any]], float],
     n_bootstrap: int = 1000,
     ci: float = 0.95,
     seed: int = 42,
@@ -569,8 +569,8 @@ def bootstrap_ci(
 
 
 def attenuation_corrected_rho(
-    x: np.ndarray,
-    y: np.ndarray,
+    x: np.ndarray[Any, Any],
+    y: np.ndarray[Any, Any],
     n_battles: int,
     n_bootstrap: int = 1000,
     seed: int = 42,
@@ -606,7 +606,7 @@ def attenuation_corrected_rho(
         reliability = 1.0
         rho_corrected = rho_raw
 
-    def _spearmanr(x_arr: np.ndarray, y_arr: np.ndarray) -> float:
+    def _spearmanr(x_arr: np.ndarray[Any, Any], y_arr: np.ndarray[Any, Any]) -> float:
         r = stats.spearmanr(x_arr, y_arr)
         return float(r.statistic)
 
@@ -658,8 +658,8 @@ def holm_bonferroni(p_values: list[float], alpha: float = 0.05) -> list[bool]:
 
 
 def run_ablation_tracks(
-    x_full: np.ndarray,
-    y: np.ndarray,
+    x_full: np.ndarray[Any, Any],
+    y: np.ndarray[Any, Any],
     feature_names: list[str],
     bst_feature_indices: list[int],
     model_factory: Callable[[], BaseEstimator],
@@ -694,7 +694,7 @@ def run_ablation_tracks(
     bst_indices = sorted({i for i in bst_feature_indices if 0 <= i < n_features})
     non_bst_indices = sorted(set(range(n_features)) - set(bst_indices))
 
-    tracks: dict[str, np.ndarray] = {
+    tracks: dict[str, np.ndarray[Any, Any]] = {
         "bst_only": x_full[:, bst_indices],
         "features_only": x_full[:, non_bst_indices],
         "full": x_full,
@@ -706,7 +706,7 @@ def run_ablation_tracks(
         "full": list(range(n_features)),
     }
 
-    def _metric(t: np.ndarray, p: np.ndarray) -> float:
+    def _metric(t: np.ndarray[Any, Any], p: np.ndarray[Any, Any]) -> float:
         if task == "classification":
             return float(roc_auc_score(t, p))
         return float(r2_score(t, p))
@@ -814,7 +814,7 @@ def fit_bradley_terry(
     n_teams: int,
     n_iter: int = 200,
     lr: float = 0.01,
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """Iterative MLE for Bradley-Terry model.
 
     Args:
@@ -846,7 +846,7 @@ def fit_bradley_terry(
 
 
 def swiss_pairings_round(
-    scores: np.ndarray,
+    scores: np.ndarray[Any, Any],
     history: set[tuple[int, int]],
     rng: np.random.Generator,
 ) -> list[tuple[int, int]]:

@@ -13,9 +13,9 @@ Design (statistically valid):
   - No ELO path-dependence; win rate is bounded [0, 1].
 
 Usage:
-    uv run python scripts/benchmark_team.py --seed=42 --n-rounds=10 --n-battles=30
-    uv run python scripts/benchmark_team.py --battle-policy greedy --save-teams
-    uv run python scripts/benchmark_team.py --battle-policy dongimon --save-teams
+    uv run python scripts/benchmark/benchmark_team.py --seed=42 --n-rounds=10 --n-battles=30
+    uv run python scripts/benchmark/benchmark_team.py --battle-policy greedy --save-teams
+    uv run python scripts/benchmark/benchmark_team.py --battle-policy dongimon --save-teams
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
 from numpy.typing import NDArray
@@ -47,7 +47,7 @@ from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_move_set, gen_pkm_roster
 
 from competitor import DongimonCompetitor
-from src.battle.policy import DongimonBattlePolicy
+from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
 from src.config.loader import load_battle_weights
 
 N_BOOTSTRAP = 10_000
@@ -708,7 +708,7 @@ def main() -> None:
 
     total_matchups = args.n_rounds * len(pair_keys)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parent.parent.parent
     results_dir = root_dir / "data" / "benchmark_team"
     composition_dir = results_dir / "team_composition"
     results_dir.mkdir(parents=True, exist_ok=True)

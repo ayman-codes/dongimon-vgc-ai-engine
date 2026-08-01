@@ -136,7 +136,7 @@ def seed_coverage_teams(
 def _build_type_coverage_matrix(
     pool_species: list[Any],
     viability_scores: dict[Any, float],
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """Build a 19xN matrix of offensive type-coverage damage proxies.
 
     Each cell (type_i, species_j) estimates how well species_j hits a
@@ -187,7 +187,7 @@ def _build_type_coverage_matrix(
     return matrix
 
 
-def _rank_transform(matrix: np.ndarray) -> np.ndarray:
+def _rank_transform(matrix: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
     """Rank-transform each row of the matrix (argsort of argsort).
 
     Lower rank = better coverage against that type.
@@ -206,7 +206,7 @@ def _rank_transform(matrix: np.ndarray) -> np.ndarray:
 
 
 def _greedy_coverage_select(
-    ranked: np.ndarray,
+    ranked: np.ndarray[Any, Any],
     n_species: int,
     team_size: int,
     rng: Any,

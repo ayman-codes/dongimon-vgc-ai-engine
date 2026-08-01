@@ -38,7 +38,7 @@ from vgc2.battle_engine.view import StateView, TeamView
 from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
-from src.battle.policy import DongimonBattlePolicy
+from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
 
 N_TRIALS = 400
 N_BATTLES = 25

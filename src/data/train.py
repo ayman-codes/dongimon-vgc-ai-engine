@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,7 @@ RANDOM_STATE = 42
 EARLY_STOPPING_ROUNDS = 50
 
 
-def load_jsonl(data_dir: Path) -> tuple[np.ndarray, np.ndarray, list[str]]:
+def load_jsonl(data_dir: Path) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], list[str]]:
     """Load all JSONL files in data_dir into feature matrix and labels.
 
     Args:
@@ -72,8 +73,15 @@ def load_jsonl(data_dir: Path) -> tuple[np.ndarray, np.ndarray, list[str]]:
 
 
 def split_data(
-    X: np.ndarray, y: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    X: np.ndarray[Any, Any], y: np.ndarray[Any, Any]
+) -> tuple[
+    np.ndarray[Any, Any],
+    np.ndarray[Any, Any],
+    np.ndarray[Any, Any],
+    np.ndarray[Any, Any],
+    np.ndarray[Any, Any],
+    np.ndarray[Any, Any],
+]:
     """Split data into train/val/test (70/15/15) with stratification.
 
     Args:
@@ -96,7 +104,7 @@ def split_data(
 
 
 def xgboost_objective(
-    trial: optuna.Trial, X: np.ndarray, y: np.ndarray
+    trial: optuna.Trial, X: np.ndarray[Any, Any], y: np.ndarray[Any, Any]
 ) -> float:
     """Optuna objective for XGBoost: mean 5-fold CV AUROC with early stopping.
 
@@ -140,7 +148,7 @@ def xgboost_objective(
 
 
 def lightgbm_objective(
-    trial: optuna.Trial, X: np.ndarray, y: np.ndarray
+    trial: optuna.Trial, X: np.ndarray[Any, Any], y: np.ndarray[Any, Any]
 ) -> float:
     """Optuna objective for LightGBM: mean 5-fold CV AUROC with early stopping.
 
@@ -152,7 +160,7 @@ def lightgbm_objective(
     Returns:
         Mean AUROC across CV folds.
     """
-    params = {
+    params: dict[str, Any] = {
         "num_leaves": trial.suggest_int("num_leaves", 16, 127),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
         "n_estimators": trial.suggest_int("n_estimators", 100, 1000, step=50),
@@ -176,14 +184,14 @@ def lightgbm_objective(
             eval_set=[(X[val_idx], y[val_idx])],
             eval_metric="auc",
         )
-        preds = model.predict_proba(X[val_idx])[:, 1]
+        preds = np.asarray(model.predict_proba(X[val_idx]))[:, 1]
         scores.append(roc_auc_score(y[val_idx], preds))
 
     return float(np.mean(scores))
 
 
 def random_forest_objective(
-    trial: optuna.Trial, X: np.ndarray, y: np.ndarray
+    trial: optuna.Trial, X: np.ndarray[Any, Any], y: np.ndarray[Any, Any]
 ) -> float:
     """Optuna objective for Random Forest: mean 5-fold CV AUROC.
 
@@ -219,12 +227,12 @@ def random_forest_objective(
 
 def train_and_evaluate(
     model: Any,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    X_test: np.ndarray,
-    y_test: np.ndarray,
+    X_train: np.ndarray[Any, Any],
+    y_train: np.ndarray[Any, Any],
+    X_val: np.ndarray[Any, Any],
+    y_val: np.ndarray[Any, Any],
+    X_test: np.ndarray[Any, Any],
+    y_test: np.ndarray[Any, Any],
 ) -> dict[str, float]:
     """Train model on train set and evaluate on val + test.
 
@@ -329,46 +337,44 @@ def run_training(
 
         t_start = time.perf_counter()
 
-        storage = None
+        storage: str | None = None
         study_name = f"{study_prefix}_{model_name}"
         if study_db:
             storage = f"sqlite:///{study_db.resolve()}"
 
-        study_exists = (
-            storage is not None
-            and study_name in optuna.get_all_study_names(storage)
-        )
-
-        if study_exists and len(optuna.load_study(study_name=study_name, storage=storage).trials) >= n_trials:
+        study: optuna.Study | None = None
+        remaining = 0
+        skip_optuna = False
+        if storage is not None and study_name in optuna.get_all_study_names(storage):
             study = optuna.load_study(study_name=study_name, storage=storage)
-            print(f"  Study '{study_name}' already has {len(study.trials)} trials (>= {n_trials})")
-            print("  Skipping Optuna — using existing best params.")
-            print(f"  Best CV AUROC from study: {study.best_value:.4f} "
-                  f"(trial #{study.best_trial.number})")
-            best_params = dict(study.best_params)
-        else:
-            if study_exists:
-                study = optuna.load_study(study_name=study_name, storage=storage)
-                existing = len(study.trials)
-                remaining = n_trials - existing
-                print(f"  Resuming study '{study_name}' with {existing} existing trials")
-                print(f"  Running {remaining} more trials...")
+            if len(study.trials) >= n_trials:
+                skip_optuna = True
+                print(f"  Study '{study_name}' already has {len(study.trials)} trials (>= {n_trials})")
+                print("  Skipping Optuna — using existing best params.")
+                print(f"  Best CV AUROC from study: {study.best_value:.4f} "
+                      f"(trial #{study.best_trial.number})")
+                best_params = dict(study.best_params)
             else:
-                sampler = optuna.samplers.TPESampler(seed=RANDOM_STATE)
-                study = optuna.create_study(
-                    study_name=study_name,
-                    direction="maximize",
-                    sampler=sampler,
-                    storage=storage,
-                    load_if_exists=True,
-                )
-                remaining = n_trials
-                print(f"  Created new study '{study_name}'")
-                print(f"  Running {remaining} trials...")
+                remaining = n_trials - len(study.trials)
+                print(f"  Resuming study '{study_name}' with {len(study.trials)} existing trials")
+                print(f"  Running {remaining} more trials...")
+        if study is None:
+            sampler = optuna.samplers.TPESampler(seed=RANDOM_STATE)
+            study = optuna.create_study(
+                study_name=study_name,
+                direction="maximize",
+                sampler=sampler,
+                storage=storage,
+                load_if_exists=True,
+            )
+            remaining = n_trials
+            print(f"  Created new study '{study_name}'")
+            print(f"  Running {remaining} trials...")
 
+        if not skip_optuna:
             if remaining > 0:
                 study.optimize(
-                    lambda trial, _fn=objective_fn: _fn(trial, X_train, y_train),
+                    partial(objective_fn, X=X_train, y=y_train),
                     n_trials=remaining,
                     show_progress_bar=True,
                 )

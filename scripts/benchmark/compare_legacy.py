@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from typing import Any
 
@@ -22,7 +22,7 @@ from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
 from legacy.my_battle_policy import MyBattlePolicy
-from src.battle.policy import DongimonBattlePolicy
+from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
 
 
 def run_battles(bp: Any, n: int, team: Any, view: Any, sel: Any, params: Any) -> int:

@@ -5,7 +5,7 @@ BasicSelectionPolicy. Only the BattlePolicy differs, isolating
 in-battle decision quality via ELO ratings.
 
 Usage:
-    uv run python scripts/benchmark_battle.py --seed=42 --n-matches=10 --n-battles=25
+    uv run python scripts/benchmark/benchmark_selection_bp.py --seed=42 --n-matches=10 --n-battles=25
 """
 
 import argparse
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, TextIO
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy
@@ -165,7 +165,7 @@ def main() -> None:
     total_matchups = args.n_matches * n_players * (n_players - 1) // 2
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join(os.path.dirname(__file__), "..", "data", "benchmark_battle")
+    results_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "benchmark_battle")
     os.makedirs(results_dir, exist_ok=True)
 
     battle_log_path = os.path.join(results_dir, f"battle_log_{timestamp}.jsonl")

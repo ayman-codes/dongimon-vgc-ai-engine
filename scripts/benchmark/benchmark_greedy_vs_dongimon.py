@@ -4,7 +4,7 @@ Same team, same selection. Only battle policy differs.
 Quick diagnostic to isolate battle-policy quality.
 
 Usage:
-    uv run python scripts/benchmark_greedy_vs_dongimon.py --n-matches=20 --n-battles=25
+    uv run python scripts/benchmark/benchmark_greedy_vs_dongimon.py --n-matches=20 --n-battles=25
 """
 
 import argparse
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy

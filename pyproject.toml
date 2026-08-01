@@ -8,7 +8,11 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "mlflow>=2.0",
+    "vgc2",
 ]
+
+[tool.uv.sources]
+vgc2 = { path = "C:/Users/Mohammed Ayman PC/pokemon-vgc-engine" }
 
 [build-system]
 requires = ["setuptools>=75"]
@@ -56,8 +60,11 @@ ignore = [
     "S101",  
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"PPO_trainers/**/__init__.py" = ["N999"]
+
 [tool.ruff.lint.isort]
-known-first-party = ["src"]
+known-first-party = ["src", "PPO_trainers"]
 
 [tool.ruff.format]
 quote-style = "double"

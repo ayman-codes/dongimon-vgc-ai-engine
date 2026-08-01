@@ -11,7 +11,7 @@ Players:
     Greedy, JJJ, minimon, caaaden, Dongimon (heuristic), TreeBC (XGBoost)
 
 Usage:
-    uv run python scripts/benchmark_battle.py --seed=42 --n-rounds=5 --n-battles=20
+    uv run python scripts/benchmark/benchmark_battle.py --seed=42 --n-rounds=5 --n-battles=20
 """
 
 import argparse
@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, TextIO
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
 from vgc2.agent.battle import GreedyBattlePolicy
@@ -37,7 +37,7 @@ from src.tuning.elo_rating import update_elo
 
 INITIAL_ELO = 1500.0
 ELO_K = 32.0
-BC_MODEL_PATH = Path(__file__).parent.parent / "src" / "models" / "bc_xgboost_model.joblib"
+BC_MODEL_PATH = Path(__file__).parent.parent.parent / "src" / "models" / "bc_xgboost_model.joblib"
 
 
 def _try_import_bp(module_path: str, class_name: str) -> Any | None:
@@ -79,54 +79,14 @@ def _tree_bc_bp_factory() -> Any:
     """Return a TreeBC XGBoost battle policy wrapper.
 
     Loads the trained XGBoost model and wraps it with valid-action
-    masking inference. Falls back to random valid action if model
-    prediction fails.
+    masking inference via the extracted ``TreeBCBattlePolicy``.
 
     Returns:
         A policy object with a decision(state, opp_view) method.
     """
-    import joblib
+    from PPO_trainers.tree_bc_policy.policy import TreeBCBattlePolicy
 
-    from src.tree_bc.actions import decode_action, get_valid_actions
-    from src.tree_bc.encoder import encode_state
-
-    bundle = joblib.load(BC_MODEL_PATH)
-    model = bundle["model"]
-    inverse_map = bundle["inverse_map"]
-
-    class _TreeBCPolicy:
-        """XGBoost BC policy with valid-action masking."""
-
-        def decision(self, state: StateView, opp_view: TeamView | None) -> list:
-            """Predict joint action from encoded state with masking.
-
-            Args:
-                state: Current battle state view (side 0 = own team).
-                opp_view: Opponent team view (unused, kept for interface).
-
-            Returns:
-                List of BattleCommand tuples.
-            """
-            obs = encode_state(state).reshape(1, -1)
-            valid = get_valid_actions(state)
-            if not valid:
-                return [(0, 0), (0, 0)]
-
-            raw_proba = model.predict_proba(obs)[0]
-            n_classes = len(inverse_map)
-            full_proba = np.zeros(100, dtype=np.float64)
-            for new_idx in range(min(n_classes, len(raw_proba))):
-                orig_idx = inverse_map[new_idx]
-                full_proba[orig_idx] = raw_proba[new_idx]
-
-            mask = np.zeros(100, dtype=bool)
-            mask[valid] = True
-            full_proba[~mask] = 0.0
-
-            action_idx = int(full_proba.argmax())
-            return decode_action(action_idx)
-
-    return _TreeBCPolicy()
+    return TreeBCBattlePolicy(BC_MODEL_PATH)
 
 
 def _build_roster() -> list[tuple[str, Any]]:
@@ -283,7 +243,7 @@ def main() -> None:
     total_battles = total_matchups * args.n_battles
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join(os.path.dirname(__file__), "..", "data", "benchmark_battle")
+    results_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "benchmark_battle")
     os.makedirs(results_dir, exist_ok=True)
 
     battle_log_path = os.path.join(results_dir, f"battle_log_{timestamp}.jsonl")

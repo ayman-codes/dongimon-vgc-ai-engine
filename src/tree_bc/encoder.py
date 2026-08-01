@@ -53,7 +53,7 @@ FEATURE_DIM:
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -76,7 +76,7 @@ _GLOBAL_FEAT = 11
 _SIDE_COND_FEAT = 10
 
 
-def _one_hot(value: int, size: int) -> np.ndarray:
+def _one_hot(value: int, size: int) -> np.ndarray[Any, Any]:
     """Create a one-hot encoded float32 vector.
 
     Args:
@@ -92,7 +92,7 @@ def _one_hot(value: int, size: int) -> np.ndarray:
     return vec
 
 
-def _encode_pokemon(pkm: object) -> np.ndarray:
+def _encode_pokemon(pkm: Any) -> np.ndarray[Any, Any]:
     """Encode a single Pokemon into 23 features.
 
     Fainted Pokemon (hp <= 0) and None slots are encoded as all zeros.
@@ -165,7 +165,7 @@ def _encode_pokemon(pkm: object) -> np.ndarray:
     return feats
 
 
-def _encode_move(battling_move: object) -> np.ndarray:
+def _encode_move(battling_move: Any) -> np.ndarray[Any, Any]:
     """Encode a single move into 12 features.
 
     Detects DUMMY_MOVE via identity check and returns all zeros.
@@ -260,7 +260,7 @@ def _encode_move(battling_move: object) -> np.ndarray:
     return feats
 
 
-def _encode_global(state: object) -> np.ndarray:
+def _encode_global(state: Any) -> np.ndarray[Any, Any]:
     """Encode global field state into 11 features.
 
     Weather one-hot (5), terrain one-hot (5), trickroom binary (1).
@@ -291,7 +291,7 @@ def _encode_global(state: object) -> np.ndarray:
     return feats
 
 
-def _encode_side_conditions(side: object) -> np.ndarray:
+def _encode_side_conditions(side: Any) -> np.ndarray[Any, Any]:
     """Encode one side's conditions into 5 binary features.
 
     Order: reflect, lightscreen, tailwind, stealth_rock, poison_spikes.
@@ -320,7 +320,7 @@ def _encode_side_conditions(side: object) -> np.ndarray:
     return feats
 
 
-def encode_state(state: StateView) -> np.ndarray:
+def encode_state(state: StateView) -> np.ndarray[Any, Any]:
     """Convert a StateView into a fixed-size float32 feature vector.
 
     Encodes all Pokemon (own + opponent active and reserve), own moves,
@@ -372,7 +372,7 @@ def encode_state(state: StateView) -> np.ndarray:
 
         pkm = active_list[active_idx] if active_idx < len(active_list) else None
 
-        moves: list[object] = []
+        moves: list[Any] = []
         if pkm is not None and hasattr(pkm, "hp") and pkm.hp > 0:
             try:
                 moves = list(pkm.battling_moves) if hasattr(pkm, "battling_moves") else []

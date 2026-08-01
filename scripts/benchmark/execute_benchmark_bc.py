@@ -4,8 +4,8 @@ Runs all steps SEQUENTIALLY to avoid memory overload on EC2.
 Logs everything to execute_benchmark_bc.log for morning review.
 
 Usage:
-    uv run python execute_benchmark_bc.py
-    uv run python execute_benchmark_bc.py --smoke   # quick 1-round smoke test
+    uv run python scripts/benchmark/execute_benchmark_bc.py
+    uv run python scripts/benchmark/execute_benchmark_bc.py --smoke   # quick 1-round smoke test
 """
 
 import argparse
@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 LOG_FILE = PROJECT_ROOT / "execute_benchmark_bc.log"
 
 BENCHMARK_COMMON_ARGS = [
@@ -118,7 +118,7 @@ def main() -> None:
     for mode in SELECTION_MODES:
         step_name = f"Selection benchmark: {mode}"
         cmd = [
-            uv, "run", "python", "scripts/benchmark_team.py",
+            uv, "run", "python", "scripts/benchmark/benchmark_team.py",
             *BENCHMARK_COMMON_ARGS,
             "--n-rounds", n_rounds,
             "--n-battles", n_battles,

@@ -7,6 +7,7 @@ from pathlib import Path
 from src.tree_bc.actions import decode_action
 from src.tree_bc.encoder import FEATURE_DIM
 from src.tree_bc.generate_data import (
+    EXPERT_WEIGHTS,
     _load_checkpoint,
     _save_checkpoint,
     run_pipeline,
@@ -235,7 +236,7 @@ class TestGenerateDataIntegration:
                 resume=False,
             )
             jsonl_files = sorted(output_dir.glob("bc_data_*.jsonl"))
-            valid_experts = {"JJJ", "minimon", "caaaden", "dongimon"}
+            valid_experts = set(EXPERT_WEIGHTS.keys())
             with open(jsonl_files[0]) as f:
                 for line in f:
                     record = json.loads(line)

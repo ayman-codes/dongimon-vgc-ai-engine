@@ -11,7 +11,7 @@ import pytest
 from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.modifiers import Category, Hazard, Stat, Status, Terrain, Type, Weather
 
-from src.battle.move_scoring import (
+from PPO_trainers.weighted_heuristic.move_scoring import (
     _get_type_eff_string,
     estimate_incoming_threat,
     identify_biggest_threat,

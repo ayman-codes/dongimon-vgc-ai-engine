@@ -3,7 +3,7 @@ from typing import Any
 
 from vgc2.competition import Competitor
 
-from src.battle.policy import DongimonBattlePolicy
+from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
 from src.selection.policy import DongimonSelectionPolicy
 from src.teambuild.policy import HesfTeamBuildPolicy
 

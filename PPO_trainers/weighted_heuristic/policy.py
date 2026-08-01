@@ -12,8 +12,8 @@ from vgc2.battle_engine import BattleCommand
 from vgc2.battle_engine.modifiers import Category
 from vgc2.battle_engine.view import StateView, TeamView
 
-from src.battle.joint import evaluate_joint_actions
-from src.battle.move_scoring import (
+from PPO_trainers.weighted_heuristic.joint import evaluate_joint_actions
+from PPO_trainers.weighted_heuristic.move_scoring import (
     score_offensive_move,
     score_protect_move,
     score_switch_action,

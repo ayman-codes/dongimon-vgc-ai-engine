@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from vgc2.battle_engine.modifiers import Category, Stat, Type, Weather
 
-from src.battle.joint import (
+from PPO_trainers.weighted_heuristic.joint import (
     _env_synergy,
     _is_setup_move,
     _off_def_support,

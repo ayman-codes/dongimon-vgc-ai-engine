@@ -85,7 +85,7 @@ Built on top of the `vgc2` simulation engine (v2.1.3)
 
 ### Policy Breakdown
 
-**Battle Policy** (`src/battle/`) -- Each turn, generates all legal actions (moves &times; targets + switches to reserves), scores them individually via `move_scoring.py`, then pairs actions across both active slots and evaluates **9 weighted synergy components**: base individual scores, survival impact, focus fire, target priority, off-def support, setup synergy, environmental synergy, and board position lookahead. Weights are loaded from a tuned `battle_weights.yaml` configuration.
+**Battle Policy** -- The Optuna-tuned weighted heuristic (`DongimonBattlePolicy`) now lives under `PPO_trainers/weighted_heuristic/` (moved from `src/battle/`), kept as a benchmark opponent and PPO sparring partner. `src/battle/` is reserved for the upcoming Greedy_Dongi net-damage policy (see `context/greedy_dongi_plan.md`). Each turn it generates all legal actions (moves &times; targets + switches to reserves), scores them individually, then pairs actions across both active slots and evaluates **9 weighted synergy components**: base individual scores, survival impact, focus fire, target priority, off-def support, setup synergy, environmental synergy, and board position lookahead. Weights are loaded from a tuned `battle_weights.yaml` configuration.
 
 **Selection Policy** (`src/selection/`) -- At Team Preview, two paths: (1) **Fast path** (team ≤ 4): analytical pair-synergy ranking of all C(n,2) active pairs using 4 teamwork terms (offensive coverage, defensive complementarity, speed control, role balance) blended with an opponent-aware matchup term — no simulation needed. (2) **Full path** (team > 4): predicts opponent movesets, pre-filters rosters via damage matrix, then runs sub-tournament simulations. Weights tuned via Optuna and stored in `selection_synergy.yaml`.
 
@@ -105,14 +105,14 @@ uv sync --dev
 # Run test suite
 uv run pytest tests/ -v
 
-# Smoke test (3 battles vs Greedy baseline)
+# Smoke test (championship-track)
 uv run python scripts/run_competition.py
 
-# Isolated benchmark (battle policy only, 5 matches x 25 battles)
-uv run python scripts/benchmark.py --n-matches=5 --n-battles=25
+# Battle-policy benchmark (BP only, no selection)
+uv run python scripts/benchmark/benchmark_battle.py --seed=42 --n-rounds=5 --n-battles=20
 
-# Full benchmark (all 3 policies, 5 matches x 25 battles)
-uv run python scripts/benchmark.py --full --n-matches=5 --n-battles=25
+# Teambuild + selection benchmark
+uv run python scripts/benchmark/benchmark_team.py --seed=42 --n-rounds=10 --n-battles=30
 
 # Optuna weight tuning (resumes from existing study)
 uv run python scripts/tune_weights.py             # Battle policy (14 weights)
@@ -144,10 +144,8 @@ dongimon/
 │   │   ├── teambuild_weights.yaml  #  Tuned 12-weight teambuild vector (Optuna trial #192)
 │   │   └── selection_synergy.yaml  #  Tuned 5-weight selection fast path (Optuna trial #211)
 │   │
-│   ├── battle/                     # Turn-by-turn battle policy
-│   │   ├── policy.py               #  DongimonBattlePolicy (orchestrator)
-│   │   ├── move_scoring.py         #  Offensive move / protect / switch scoring, threat estimation
-│   │   └── joint.py               #  Joint action pairing with 9 synergy components
+│   ├── battle/                     # Turn-by-turn battle policy (greedy_dongi, M2)
+│   │   └── __init__.py
 │   │
 │   ├── selection/                  # Team preview selection policy
 │   │   ├── policy.py               #  DongimonSelectionPolicy (fast path + full pipeline)
@@ -171,15 +169,26 @@ dongimon/
 │   └── tracking/                   # Benchmark result logging
 │       └── benchmark_tracker.py    #  BenchmarkTracker (context manager -> JSON)
 │
+├── PPO_trainers/                   # Retired / sparring-partner battle policies
+│   ├── weighted_heuristic/         #  Old DongimonBattlePolicy (moved from src/battle/)
+│   │   ├── policy.py
+│   │   ├── move_scoring.py
+│   │   └── joint.py
+│   └── tree_bc_policy/             #  TreeBC XGBoost BC inference wrapper
+│       └── policy.py
+│
 ├── scripts/
-│   ├── run_competition.py          # Smoke test 
-│   ├── benchmark.py                # Battle royale benchmark (isolated + full modes)
-│   ├── benchmark_competitors.py    # Full competitor benchmark 
-│   ├── benchmark_isolated.py       # Battle-policy-only benchmark (same team)
+│   ├── benchmark/                  # Benchmark scripts
+│   │   ├── benchmark_battle.py     #  Pure battle-policy ELO benchmark
+│   │   ├── benchmark_team.py       #  Teambuild + selection benchmark
+│   │   ├── benchmark_selection_bp.py      #  Selection + battle-policy ELO benchmark
+│   │   ├── benchmark_greedy_vs_dongimon.py  #  Dongimon vs Greedy head-to-head
+│   │   ├── compare_legacy.py       #  Legacy vs extracted policy comparison
+│   │   └── execute_benchmark_bc.py #  Overnight orchestration (benchmarks + BC data)
+│   ├── run_competition.py          # Championship-track smoke test
 │   ├── tune_weights.py             # Optuna 14-weight BP tuning pipeline
 │   ├── tune_teambuild.py           # Optuna 12-weight teambuild tuning (400 trials)
 │   ├── tune_selection.py           # Optuna 5-weight selection synergy tuning (300 trials)
-│   ├── compare_legacy.py           # Legacy vs extracted policy comparison
 │   └── start_mlflow_server.py      # Launch MLflow tracking server
 │
 ├── tests/                          # pytest test suite (11 files)
@@ -253,7 +262,7 @@ Dongimon's three-stage HESF teambuild produced teams that consistently underperf
 | `src/teambuild/fitness.py` | `w_speed` 0.24→0.30, `w_util` 0.16→0.10, `w_dmg` 0.36→0.40, `w_stat` 0.16→0.12 | Shift archetype preference from bulky-utility (0.52) toward speed-damage |
 | `src/teambuild/operators.py` | `_VIABILITY_WEIGHT` 0.30→0.35, `_COVERAGE_WEIGHT` 0.22→0.18, `_DEFENCE_WEIGHT` 0.16→0.13 | Align GA with JJJ/caaaden (more BST, less synergy) |
 | `src/selection/prediction.py` | Filter builds with empty movesets in `predict_opponent_builds` | Prevent crashes when opponent species has non-standard movepools |
-| `scripts/benchmark_team.py` | `_try_selection` wrapper for opponents (silent fallback); `_safe_selection` for Dongimon (loud failure) | Isolate Dongimon failures; opponent failures never terminate benchmark |
+| `scripts/benchmark/benchmark_team.py` | `_try_selection` wrapper for opponents (silent fallback); `_safe_selection` for Dongimon (loud failure) | Isolate Dongimon failures; opponent failures never terminate benchmark |
 
 ### v5 Results (10 rounds × 30 battles, same seed)
 

@@ -11,7 +11,7 @@ from vgc2.battle_engine import BattleRuleParam
 from vgc2.battle_engine.modifiers import Category, Stat, Status, Terrain, Type, Weather
 from vgc2.battle_engine.view import BattlingPokemonView, StateView
 
-from src.battle.move_scoring import (
+from PPO_trainers.weighted_heuristic.move_scoring import (
     calculate_focus_fire_bonus,
     estimate_incoming_threat,
     identify_biggest_threat,
