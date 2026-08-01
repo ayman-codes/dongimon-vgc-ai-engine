@@ -68,13 +68,6 @@ def _greedy_bp_factory() -> Any:
     return GreedyBattlePolicy()
 
 
-def _dongimon_bp_factory() -> Any:
-    """Return the Dongimon heuristic battle policy."""
-    from competitor import DongimonCompetitor
-
-    return DongimonCompetitor().battlepolicy
-
-
 def _greedy_dongi_bp_factory() -> Any:
     """Return a fresh GreedyDongi net-damage policy instance."""
     from src.battle.greedy_dongi import GreedyDongiPolicy
@@ -107,7 +100,6 @@ def _build_roster() -> list[tuple[str, Any]]:
         ("JJJ", "competitors.competitor1_jjj", "JJJ_Competitor"),
         ("minimon", "competitors.competitor2_minimon", "minimon"),
         ("caaaden", "competitors.competitor_caaaden", "CaaadenCompetitor"),
-        ("Dongimon", "competitor", "DongimonCompetitor"),
         ("GreedyDongi", "", ""),
     ]
 

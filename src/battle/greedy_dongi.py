@@ -144,6 +144,11 @@ class GreedyDongiPolicy(BattlePolicy):  # type: ignore[misc]
     ) -> list[BattleCommand]:
         """Select the joint action maximizing net-damage score.
 
+        Opponent response is computed once (constant across all actions)
+        because in a simultaneous-turn game the opponent acts regardless
+        of our choice.  The response becomes action-dependent only when
+        Protect or Switch enters the action space (M3/M4).
+
         Args:
             state: Current battle state view (side 0 = own team).
             opp_view: Opponent team view (unused, kept for interface).
@@ -168,16 +173,18 @@ class GreedyDongiPolicy(BattlePolicy):  # type: ignore[misc]
 
         target_range = list(range(n_defenders))
 
+        opp_hp_original = [d.hp for d in defenders]
+        dmg_taken, our_kos = _simulate_opponent_response(
+            self.params, state, attackers, defenders, opp_hp_original,
+        )
+
         best_score: tuple[int, int, int] | None = None
         best_cmds: list[BattleCommand] = [(0, 0)] * len(attackers)
 
         for sources in product(*move_ranges):
             for targets in product(target_range, repeat=len(attackers)):
-                dmg_dealt, opp_kos, opp_hp_after = _simulate_our_attacks(
+                dmg_dealt, opp_kos, _ = _simulate_our_attacks(
                     self.params, state, attackers, defenders, sources, targets,
-                )
-                dmg_taken, our_kos = _simulate_opponent_response(
-                    self.params, state, attackers, defenders, opp_hp_after,
                 )
 
                 score = (opp_kos, -our_kos, dmg_dealt - dmg_taken)
