@@ -42,7 +42,11 @@ def _run_match(
     n_battles: int,
     seed: int,
 ) -> tuple[int, int]:
-    """Run N battles between two battle policies using the same team."""
+    """Run N battles between two battle policies using the same team.
+
+    Sides are swapped each battle to eliminate the engine's
+    side-0 speed-tie advantage.
+    """
     wins_a = 0
     wins_b = 0
 
@@ -61,17 +65,28 @@ def _run_match(
         rng_tuple = ((gen, gen), (gen, gen))
         engine = BattleEngine(state, params=params, acc_rng=rng_tuple, eff_rng=rng_tuple, sta_rng=rng_tuple)
 
+        a_is_side0 = (b_idx % 2 == 0)
         while not engine.finished():
             sv0 = StateView(engine.state, 0, (sub_view_a, sub_view_b))
             sv1 = StateView(engine.state, 1, (sub_view_b, sub_view_a))
-            cmd0 = bp_a.decision(sv0, sub_view_b)
-            cmd1 = bp_b.decision(sv1, sub_view_a)
+            if a_is_side0:
+                cmd0 = bp_a.decision(sv0, sub_view_b)
+                cmd1 = bp_b.decision(sv1, sub_view_a)
+            else:
+                cmd0 = bp_b.decision(sv0, sub_view_b)
+                cmd1 = bp_a.decision(sv1, sub_view_a)
             engine.run_turn((cmd0, cmd1))
 
         if engine.winning_side == 0:
-            wins_a += 1
+            if a_is_side0:
+                wins_a += 1
+            else:
+                wins_b += 1
         elif engine.winning_side == 1:
-            wins_b += 1
+            if a_is_side0:
+                wins_b += 1
+            else:
+                wins_a += 1
 
     return wins_a, wins_b
 

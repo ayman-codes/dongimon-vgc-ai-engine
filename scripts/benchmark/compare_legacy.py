@@ -26,9 +26,10 @@ from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
 
 
 def run_battles(bp: Any, n: int, team: Any, view: Any, sel: Any, params: Any) -> int:
+    """Run n battles of bp vs Greedy, swapping sides each battle."""
     wins = 0
     opp = GreedyBattlePolicy()
-    for _ in range(n):
+    for b_idx in range(n):
         idx_a = sel.decision((team, view), 4)
         idx_b = sel.decision((team, view), 4)
         ta, va = subteam(team, view, idx_a)
@@ -36,13 +37,20 @@ def run_battles(bp: Any, n: int, team: Any, view: Any, sel: Any, params: Any) ->
         bt = get_battle_teams((ta, tb), 2)
         state = State(bt)
         eng = BattleEngine(state, params=params)
+        bp_is_side0 = (b_idx % 2 == 0)
         while not eng.finished():
             s0 = StateView(eng.state, 0, (va, vb))
             s1 = StateView(eng.state, 1, (vb, va))
-            c0 = bp.decision(s0, vb)
-            c1 = opp.decision(s1, va)
+            if bp_is_side0:
+                c0 = bp.decision(s0, vb)
+                c1 = opp.decision(s1, va)
+            else:
+                c0 = opp.decision(s0, vb)
+                c1 = bp.decision(s1, va)
             eng.run_turn((c0, c1))
-        if eng.winning_side == 0:
+        if (eng.winning_side == 0 and bp_is_side0) or (
+            eng.winning_side == 1 and not bp_is_side0
+        ):
             wins += 1
     return wins
 

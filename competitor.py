@@ -3,7 +3,7 @@ from typing import Any
 
 from vgc2.competition import Competitor
 
-from PPO_trainers.weighted_heuristic.policy import DongimonBattlePolicy
+from src.battle.greedy_dongi import GreedyDongiPolicy
 from src.selection.policy import DongimonSelectionPolicy
 from src.teambuild.policy import HesfTeamBuildPolicy
 
@@ -18,7 +18,7 @@ class DongimonCompetitor(Competitor):  # type: ignore[misc]
         n_top_candidates: int | None = None,
     ):
         self.__name = name
-        bp = DongimonBattlePolicy(custom_weights=custom_weights) if custom_weights else DongimonBattlePolicy()
+        bp = GreedyDongiPolicy()
         self.__battle_policy_instance = bp
         sel_kwargs: dict[str, Any] = {
             "selection_mode": selection_mode,

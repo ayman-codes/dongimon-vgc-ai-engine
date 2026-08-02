@@ -128,7 +128,6 @@ def main() -> None:
     start = time.perf_counter()
 
     for epoch in range(args.epochs):
-        # Phase 1: Each competitor builds a team from the shared roster
         build_times: dict[str, float] = {}
         for cm in cms:
             t_start = time.perf_counter()
@@ -143,7 +142,6 @@ def main() -> None:
                 cm.team = None
             build_times[cm.competitor.name] = time.perf_counter() - t_start
 
-        # Phase 2: Round-robin matches (no gen= → uses pre-built teams)
         for i in range(n):
             for j in range(i + 1, n):
                 name_a, name_b = names[i], names[j]
@@ -156,7 +154,8 @@ def main() -> None:
                         elos[name_b] += ELO_K / 2
                     continue
 
-                match = Match(
+                # Run both side orders to eliminate engine side-0 bias
+                match_fwd = Match(
                     (cms[i], cms[j]),
                     n_active=N_ACTIVE,
                     n_battles=args.n_battles,
@@ -164,9 +163,21 @@ def main() -> None:
                     max_pkm_moves=MAX_PKM_MOVES,
                     meta=meta,
                 )
-                match.run()
+                match_fwd.run()
 
-                wins_a, wins_b = match.wins[0], match.wins[1]
+                match_rev = Match(
+                    (cms[j], cms[i]),
+                    n_active=N_ACTIVE,
+                    n_battles=args.n_battles,
+                    max_team_size=MAX_TEAM_SIZE,
+                    max_pkm_moves=MAX_PKM_MOVES,
+                    meta=meta,
+                )
+                match_rev.run()
+
+                # Combine: fwd has cms[i] as side 0; rev has cms[i] as side 1
+                wins_a = match_fwd.wins[0] + match_rev.wins[1]
+                wins_b = match_fwd.wins[1] + match_rev.wins[0]
                 total = wins_a + wins_b
                 if total == 0:
                     continue

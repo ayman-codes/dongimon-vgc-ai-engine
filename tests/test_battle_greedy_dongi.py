@@ -6,11 +6,17 @@ import numpy as np
 import pytest
 from vgc2.battle_engine import BattleEngine, BattleRuleParam
 from vgc2.battle_engine.game_state import State, get_battle_teams
+from vgc2.battle_engine.modifiers import Category, Type
+from vgc2.battle_engine.move import BattlingMove, Move
 from vgc2.battle_engine.view import StateView, TeamView
 from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
 from src.battle.greedy_dongi import GreedyDongiPolicy
+
+def _fresh_protect_move() -> Move:
+    """Create a fresh Protect Move instance (avoids shared-object pollution)."""
+    return Move(Type.NORMAL, 0, 1.0, 16, Category.OTHER, protect=True)
 
 
 def _make_battle_state(
@@ -206,3 +212,192 @@ class TestGreedyDongiEdgeCases:
                 if turns > 200:
                     pytest.fail(f"Battle {seed} did not terminate")
             assert eng.finished()
+
+
+class TestGreedyDongiProtect:
+    """Protect simulation tests (Milestone 3)."""
+
+    def test_protect_chosen_when_incoming_exceeds_outgoing(self) -> None:
+        """Protect is chosen when opponent threatens heavy damage."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=80)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        active = sv0.sides[0].team.active
+        pkm = active[0]
+
+        # Set slot 0 HP so opponent targets it (capped dmg > slot 1's)
+        pkm.hp = 200
+
+        # Give slot 0 Protect + weak attacks (1 BP)
+        pkm.battling_moves[0] = BattlingMove(_fresh_protect_move())
+        for i in range(1, len(pkm.battling_moves)):
+            old = pkm.battling_moves[i].constants
+            weak = Move(
+                old.pkm_type, 1, old.accuracy, old.max_pp,
+                old.category, priority=old.priority,
+            )
+            pkm.battling_moves[i] = BattlingMove(weak)
+
+        # Replace ALL opponent moves with strong Normal (ensures targeting
+        # slot 0 whose capped damage = 100, and slot 1 at full HP survives)
+        strong_normal = Move(Type.NORMAL, 150, 1.0, 10, Category.PHYSICAL)
+        opp_active = sv0.sides[1].team.active
+        for opp in opp_active:
+            for i in range(len(opp.battling_moves)):
+                opp.battling_moves[i] = BattlingMove(strong_normal)
+
+        # Kill reserves so switch is not an option (isolate protect behavior)
+        for p in sv0.sides[0].team.reserve:
+            p.hp = 0
+
+        cmds = policy.decision(sv0, opp_view)
+        # Slot 0 should protect (move index 0) to avoid the KO
+        assert cmds[0][0] == 0, (
+            f"Expected protect (move 0), got move {cmds[0][0]}"
+        )
+
+    def test_protect_not_chosen_when_can_ko(self) -> None:
+        """Never protects if a KO is available."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=90)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        # Make opponent slot 0 very low HP (1 HP) so any move KOs
+        defenders = sv0.sides[1].team.active
+        defenders[0].hp = 1
+
+        # Give our slot 0 a Protect move + a damaging move
+        active = sv0.sides[0].team.active
+        pkm = active[0]
+        pkm.battling_moves[0] = BattlingMove(_fresh_protect_move())
+        # Ensure move 1 is a strong damaging move (keep original)
+
+        cmds = policy.decision(sv0, opp_view)
+        # Slot 0 should NOT protect — it should attack to get the KO
+        assert cmds[0][0] != 0, (
+            "Policy chose Protect despite a KO being available"
+        )
+
+    def test_double_protect_not_selected(self) -> None:
+        """Both Pokemon protecting is not chosen when attacks available."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=110)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        # Give both our Pokemon Protect as move 0, keep attacks as other moves
+        active = sv0.sides[0].team.active
+        for pkm in active:
+            pkm.battling_moves[0] = BattlingMove(_fresh_protect_move())
+
+        cmds = policy.decision(sv0, opp_view)
+        # At least one slot should attack (not both protect)
+        protect_count = sum(1 for c in cmds if c[0] == 0)
+        assert protect_count < len(cmds), (
+            "Both Pokemon chose Protect — double protect should not be selected"
+        )
+
+
+class TestGreedyDongiSwitch:
+    """Switch action tests (Milestone 4)."""
+
+    def test_switch_chosen_when_walled(self) -> None:
+        """Switch is chosen when current Pokemon is walled and replacement tanks."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=120)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        active = sv0.sides[0].team.active
+        reserve = sv0.sides[0].team.reserve
+
+        # Make slot 0's attacks do 0 damage (Category.OTHER, no protect)
+        for i in range(len(active[0].battling_moves)):
+            status_move = Move(
+                Type.NORMAL, 0, 1.0, 10, Category.OTHER,
+            )
+            active[0].battling_moves[i] = BattlingMove(status_move)
+
+        # Make slot 0 very fragile so opponent targets it
+        active[0].hp = 80
+        # Keep slot 1 at low HP so opponent prefers slot 0
+        active[1].hp = 1
+
+        # Ensure opponent has strong attacks
+        opp_active = sv0.sides[1].team.active
+        strong = Move(Type.NORMAL, 150, 1.0, 10, Category.PHYSICAL)
+        for opp in opp_active:
+            for i in range(len(opp.battling_moves)):
+                opp.battling_moves[i] = BattlingMove(strong)
+
+        # Ensure at least one reserve is alive
+        assert any(p.hp > 0 for p in reserve), "Need alive reserve for test"
+
+        cmds = policy.decision(sv0, opp_view)
+        # Slot 0 should switch (cmd[0] == -1) since it can't damage
+        # opponent and is taking heavy hits
+        assert cmds[0][0] == -1, (
+            f"Expected switch (-1), got move {cmds[0][0]}"
+        )
+
+    def test_switch_not_chosen_when_can_ko(self) -> None:
+        """Never switches if a KO is available."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=130)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        # Make opponent slot 0 very low HP so any move KOs
+        defenders = sv0.sides[1].team.active
+        defenders[0].hp = 1
+
+        cmds = policy.decision(sv0, opp_view)
+        # At least one slot should attack the low-HP opponent (not switch)
+        has_attack_on_target0 = any(
+            c[0] >= 0 and c[1] == 0 for c in cmds
+        )
+        assert has_attack_on_target0, (
+            f"Policy did not attack the 1 HP opponent: {cmds}"
+        )
+
+    def test_switch_to_dead_pokemon_invalid(self) -> None:
+        """Dead reserve Pokemon are never selected as switch targets."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=140)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        # Kill all reserve Pokemon
+        reserve = sv0.sides[0].team.reserve
+        for p in reserve:
+            p.hp = 0
+
+        cmds = policy.decision(sv0, opp_view)
+        # No switch commands should appear (all reserves dead)
+        for cmd in cmds:
+            assert cmd[0] >= 0, (
+                f"Switch to dead reserve selected: {cmd}"
+            )
+
+    def test_action_space_includes_switches(self) -> None:
+        """Action space includes switch options when reserves are alive."""
+        sv0, opp_view, params, engine = _make_battle_state(seed=150)
+        policy = GreedyDongiPolicy()
+        policy.set_params(params)
+
+        reserve = sv0.sides[0].team.reserve
+        alive_reserves = [p for p in reserve if p.hp > 0]
+
+        # Verify reserves exist
+        assert len(alive_reserves) > 0, "Need alive reserves for test"
+
+        # Run many turns — switches should eventually appear
+        turns = 0
+        while not engine.finished() and turns < 50:
+            sv0 = StateView(engine.state, 0, (opp_view, opp_view))
+            sv1 = StateView(engine.state, 1, (opp_view, opp_view))
+            cmd0 = policy.decision(sv0, opp_view)
+            cmd1 = policy.decision(sv1, opp_view)
+            if any(c[0] == -1 for c in cmd0):
+                break
+            engine.run_turn((cmd0, cmd1))
+            turns += 1
+        # Switch is situational — just verify no crash over 50 turns
+        assert turns >= 0

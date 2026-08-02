@@ -1,4 +1,4 @@
-"""Overnight orchestration: MP selection benchmarks + BC data generation.
+"""MP selection benchmarks + BC data generation.
 
 Runs all steps SEQUENTIALLY to avoid memory overload on EC2.
 Logs everything to execute_benchmark_bc.log for morning review.

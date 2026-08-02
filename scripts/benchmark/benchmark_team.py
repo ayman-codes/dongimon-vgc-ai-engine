@@ -540,10 +540,15 @@ def _run_seeded_match(
         battle_seed = match_seed + b_idx
         gen = np.random.default_rng(battle_seed)
 
-        sub_a, sub_view_a = subteam(team_a, view_a, idx_a)
-        sub_b, sub_view_b = subteam(team_b, view_b, idx_b)
+        a_is_side0 = (b_idx % 2 == 0)
+        if a_is_side0:
+            sub_0, sub_view_0 = subteam(team_a, view_a, idx_a)
+            sub_1, sub_view_1 = subteam(team_b, view_b, idx_b)
+        else:
+            sub_0, sub_view_0 = subteam(team_b, view_b, idx_b)
+            sub_1, sub_view_1 = subteam(team_a, view_a, idx_a)
 
-        battle_teams = get_battle_teams((sub_a, sub_b), N_ACTIVE)
+        battle_teams = get_battle_teams((sub_0, sub_1), N_ACTIVE)
         state = State(battle_teams)
         rng_tuple = ((gen, gen), (gen, gen))
         engine = BattleEngine(
@@ -555,16 +560,22 @@ def _run_seeded_match(
         )
 
         while not engine.finished():
-            sv0 = StateView(engine.state, 0, (sub_view_a, sub_view_b))
-            sv1 = StateView(engine.state, 1, (sub_view_b, sub_view_a))
-            cmd0 = battle_policy.decision(sv0, sub_view_b)
-            cmd1 = battle_policy.decision(sv1, sub_view_a)
+            sv0 = StateView(engine.state, 0, (sub_view_0, sub_view_1))
+            sv1 = StateView(engine.state, 1, (sub_view_1, sub_view_0))
+            cmd0 = battle_policy.decision(sv0, sub_view_1)
+            cmd1 = battle_policy.decision(sv1, sub_view_0)
             engine.run_turn((cmd0, cmd1))
 
         if engine.winning_side == 0:
-            wins_a += 1
+            if a_is_side0:
+                wins_a += 1
+            else:
+                wins_b += 1
         elif engine.winning_side == 1:
-            wins_b += 1
+            if a_is_side0:
+                wins_b += 1
+            else:
+                wins_a += 1
         else:
             draws += 1
 
