@@ -253,7 +253,7 @@ def main() -> None:
     print("Final ELO Standings")
     print("=" * 60)
     for rank, (name, elo) in enumerate(rankings, 1):
-        marker = "  ← Dongimon" if name == "Dongimon" else ""
+        marker = "  <-- Dongimon" if name == "Dongimon" else ""
         print(f"  {rank}. {name:<20} {elo:>8.1f}{marker}")
     print("=" * 60)
 

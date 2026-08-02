@@ -106,7 +106,7 @@ uv sync --dev
 uv run pytest tests/ -v
 
 # Smoke test (championship-track)
-uv run python scripts/run_competition.py
+uv run python scripts/championship_track.py
 
 # Battle-policy benchmark (BP only, no selection)
 uv run python scripts/benchmark/benchmark_battle.py --seed=42 --n-rounds=5 --n-battles=20
@@ -185,7 +185,7 @@ dongimon/
 │   │   ├── benchmark_greedy_vs_dongimon.py  #  Dongimon vs Greedy head-to-head
 │   │   ├── compare_legacy.py       #  Legacy vs extracted policy comparison
 │   │   └── execute_benchmark_bc.py #  Overnight orchestration (benchmarks + BC data)
-│   ├── run_competition.py          # Championship-track smoke test
+│   ├── championship_track.py       # Championship-track benchmark (mirrors vgc2 engine)
 │   ├── tune_weights.py             # Optuna 14-weight BP tuning pipeline
 │   ├── tune_teambuild.py           # Optuna 12-weight teambuild tuning (400 trials)
 │   ├── tune_selection.py           # Optuna 5-weight selection synergy tuning (300 trials)
@@ -227,7 +227,7 @@ dongimon/
 
 1. Subclass one of the ABCs in `vgc2.agent` (BattlePolicy, SelectionPolicy, TeamBuildPolicy)
 2. Wire your policy into `competitor.py` as a property
-3. Test with `uv run python scripts/run_competition.py`
+3. Test with `uv run python scripts/championship_track.py`
 4. Benchmark with `uv run python scripts/benchmark.py`
 
 ---

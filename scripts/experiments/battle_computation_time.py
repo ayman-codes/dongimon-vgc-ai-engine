@@ -26,8 +26,7 @@ from vgc2.battle_engine.view import StateView, TeamView
 from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
-from competitor import DongimonCompetitor
-from src.config.loader import load_battle_weights
+from src.battle.greedy_dongi import GreedyDongiPolicy
 
 
 def _import_bp(module_path: str, class_name: str) -> Any:
@@ -53,7 +52,10 @@ def main() -> None:
         ("JJJ", _import_bp("competitors.competitor1_jjj", "JJJ_Competitor")),
         ("minimon", _import_bp("competitors.competitor2_minimon", "minimon")),
         ("caaaden", _import_bp("competitors.competitor_caaaden", "CaaadenCompetitor")),
-        ("Dongimon", DongimonCompetitor(custom_weights=load_battle_weights().model_dump()).battlepolicy),
+        ("GreedyDongi", GreedyDongiPolicy()),
+        ("botzilla", _import_bp("competitors.competitor_botzilla", "BotzillaCompetitor")),
+        ("laze", _import_bp("competitors.competitor_laze", "LazeCompetitor")),
+        ("peach", _import_bp("competitors.competitor_peach", "PeachCompetitor")),
     ]
 
     print("=" * 60)

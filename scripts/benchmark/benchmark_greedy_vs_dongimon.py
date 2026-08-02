@@ -24,8 +24,7 @@ from vgc2.battle_engine.view import StateView, TeamView
 from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
-from competitor import DongimonCompetitor
-from src.config.loader import load_battle_weights
+from src.battle.greedy_dongi import GreedyDongiPolicy
 from src.tuning.elo_rating import update_elo
 
 INITIAL_ELO = 1500.0
@@ -98,7 +97,6 @@ def main() -> None:
     parser.add_argument("--n-battles", type=int, default=25, help="Battles per round")
     args = parser.parse_args()
 
-    weights_dict = load_battle_weights().model_dump()
     sel = BasicSelectionPolicy()
     params = BattleRuleParam()
 
@@ -123,8 +121,7 @@ def main() -> None:
         base_team = gen_team(4, 4, team_rng)
         base_view = TeamView(base_team)
 
-        comp = DongimonCompetitor(custom_weights=weights_dict)
-        bp_dongimon = comp.battlepolicy
+        bp_dongimon = GreedyDongiPolicy()
         bp_greedy = GreedyBattlePolicy()
 
         matchup_seed = round_seed + 1
