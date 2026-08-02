@@ -80,8 +80,6 @@ def get_role_aware_moveset(
         move_scores[move]["stat_syn"] = stat_syn
         move_scores[move]["speed_syn"] = speed_syn
 
-    # Floor to 1.0: when all moves score 0 on a dimension the dimension
-    # is uninformative and should contribute 0 to differentiation (0/1 = 0).
     max_damage = max((s.get("damage", 0) for s in move_scores.values()), default=0) or 1.0
     max_utility = max((s.get("utility", 0) for s in move_scores.values()), default=0) or 1.0
     max_stat_syn = max((s.get("stat_syn", 0) for s in move_scores.values()), default=0) or 1.0

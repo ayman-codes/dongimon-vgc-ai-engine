@@ -182,7 +182,7 @@ class TestPairSynergyTerms:
         terms = pair_synergy_terms(pair, opps)
         for value in terms.values():
             assert isinstance(value, float)
-            assert value == value  # not NaN
+            assert value == value
 
     def test_coverage_zero_without_opponents(self) -> None:
         """Coverage is zero when there are no opponents to threaten."""

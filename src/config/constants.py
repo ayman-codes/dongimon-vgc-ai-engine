@@ -11,8 +11,6 @@ from vgc2.battle_engine.modifiers import Stat
 
 from src.shared.types import TYPE_CHART, TYPE_NAMES
 
-# ── Game Mechanics (immutable Pokemon engine constants) ──
-
 STAB_MULTIPLIER: float = 1.5
 STAT_STAGE_MIN: int = -6
 STAT_STAGE_MAX: int = 6
@@ -24,14 +22,12 @@ TYPE_EFF_HALF_RESIST: float = 0.5
 TYPE_EFF_SUPER: float = 2.0
 TYPE_EFF_QUAD_SUPER: float = 4.0
 
-# ── Structural Constants (algorithm architecture) ──
 
 MAX_SCORE: float = 1000.0
 THREAT_TOP_MOVES: int = 3
 CHOICE_LOCK_HISTORY_SIZE: int = 5
 CHOICE_LOCK_CONSECUTIVE: int = 3
 
-# ── Fixed-Scale Normalization Ceilings ──
 
 SCALE_BASE_SCORE: float = 700.0
 SCALE_FOCUS_FIRE: float = 950.0
@@ -41,7 +37,6 @@ SCALE_OFF_DEF: float = 312.5
 SCALE_SETUP: float = 375.0
 SCALE_ENV: float = 387.0
 
-# ── Damage Score & KO Values ──
 
 DAMAGE_SCORE_TO_PCT_MULT: float = 100.0
 KO_BONUS: float = 500.0
@@ -54,7 +49,6 @@ SUBSTANTIAL_DAMAGE_BONUS: float = 250.0
 SUBSTANTIAL_DAMAGE_BIGGEST_EXTRA: float = 100.0
 SUBSTANTIAL_DAMAGE_RATIO: float = 0.3
 
-# ── Focus Fire Specific ──
 
 FF_COMBINED_BIGGEST_EXTRA: float = 200.0
 FF_SINGLE_ALLY_CONTRIB: float = 120.0
@@ -63,20 +57,17 @@ FF_SINGLE_BIGGEST_EXTRA: float = 50.0
 FF_HEAVY_DAMAGE_BOTH: float = 250.0
 FF_HEAVY_DAMAGE_BIGGEST_EXTRA: float = 100.0
 
-# ── Survival Penalties ──
 
 LETHAL_SURVIVAL_PENALTY_MULT: float = 0.75
 PROPORTIONAL_SURVIVAL_PENALTY_MULT: float = 0.35
 SELF_KO_SURVIVAL_PENALTY_MULT: float = 0.10
 
-# ── Target Priority ──
 
 TARGET_PRIORITY_BASE: float = 450.0
 TARGET_PRIORITY_KO_ALLY_BONUS: float = 127.5
 THREAT_KO_ALLY_BASE: float = 75.0
 TARGET_PRIORITY_KO_ALLY_MULT: float = 1.7
 
-# ── Collapsed Synergy Bonuses (product pairs) ──
 
 OFF_DEF_SUPPORT_BONUS: float = 312.5
 SETUP_SYNERGY_BONUS: float = 187.5
@@ -84,7 +75,6 @@ WEATHER_SYNERGY_BONUS: float = 135.0
 TERRAIN_SYNERGY_BONUS: float = 108.0
 TRICK_ROOM_SYNERGY_BONUS: float = 144.0
 
-# ── Classification Thresholds ──
 
 STRONG_OFFENSIVE_THRESHOLD: float = 300.0
 GOOD_PROTECT_THRESHOLD: float = 100.0
@@ -95,7 +85,6 @@ SETUP_MOVE_MAX_BP: int = 50
 LOW_DAMAGE_THRESHOLD: float = 70.0
 STRONG_OFFENSIVE_TYPE_THRESHOLD: float = 4.0
 
-# ── Type Matchup Scores ──
 
 IMMUNE_RESIST_SCORE: float = 225.0
 DOUBLE_RESIST_SCORE: float = 170.0
@@ -104,7 +93,6 @@ DOUBLE_WEAKNESS_SCORE: float = 125.0
 SINGLE_WEAKNESS_SCORE: float = 75.0
 TYPE_MATCHUP_SCALE: int = 4
 
-# ── Switch Evaluation ──
 
 SWITCH_BASELINE_MULT: float = 0.5
 SWITCH_OFFENSIVE_MULT: float = 1.7
@@ -113,38 +101,32 @@ SWITCH_DEF_PIVOT_THRESHOLD: float = 0.25
 SWITCH_GOOD_BOTH_THRESHOLD: float = 30.0
 SWITCH_SYNERGY_MULT: float = 1.15
 
-# ── Stat Boost Evaluation ──
 
 DEFENSIVE_STAT_BOOST_VALUE: float = 20.0
 SPEED_BOOST_DIVISOR: float = 2.0
 BOOST_VALUE_PER_STAGE: float = 50.0
 BASE_STAT_DIVISOR: float = 10.0
 
-# ── Fallback / Proxy Values ──
 
 FALLBACK_THREAT_BP: float = 80.0
 FALLBACK_THREAT_ACC: float = 0.9
 THREAT_PROXY_SCALE: float = 1.2
 DEFAULT_AVG_MOVE_SCORE: float = 50.0
 
-# ── PP Penalty ──
 
 PP_PENALTY_RATIO: float = 0.3
 PP_PENALTY_THRESHOLD: float = 400.0
 PP_PENALTY_MULT: float = 0.8
 
-# ── Misc Penalties ──
 
 NO_TARGET_PENALTY: float = -100.0
 SCREEN_REDUNDANCY_PENALTY: float = -100.0
 HAZARD_REDUNDANCY_PENALTY: float = -100.0
 
-# ── Offensive Threat Scoring (switch context) ──
 
 OFF_THREAT_QUAD_SCORE: float = 125.0
 OFF_THREAT_DOUBLE_SCORE: float = 75.0
 
-# ── Stat indices for boost evaluation ──
 
 DEFENSIVE_BOOST_STATS: tuple[Any, ...] = (Stat.DEFENSE, Stat.SPECIAL_DEFENSE, Stat.SPEED)
 

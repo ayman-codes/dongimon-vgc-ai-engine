@@ -96,14 +96,12 @@ def main() -> None:
     from competitors.competitor2_minimon import minimon
     from competitors.competitor_caaaden import CaaadenCompetitor
 
-    # Generate shared roster (mirrors championship: gen_move_set + gen_pkm_roster)
     rng = np.random.default_rng(args.seed)
     move_set = gen_move_set(N_MOVES, rng)
     roster = gen_pkm_roster(ROSTER_SIZE, move_set, MAX_PKM_MOVES, rng)
     label_roster(move_set, roster)
     meta = BasicMeta(move_set, roster)
 
-    # Register competitors
     cms: list[CompetitorManager] = [
         CompetitorManager(DongimonCompetitor()),
         CompetitorManager(JJJ_Competitor()),
@@ -147,14 +145,12 @@ def main() -> None:
                 name_a, name_b = names[i], names[j]
 
                 if cms[i].team is None or cms[j].team is None:
-                    # Award win to the side that built successfully
                     if cms[i].team is not None:
                         elos[name_a] += ELO_K / 2
                     elif cms[j].team is not None:
                         elos[name_b] += ELO_K / 2
                     continue
 
-                # Run both side orders to eliminate engine side-0 bias
                 match_fwd = Match(
                     (cms[i], cms[j]),
                     n_active=N_ACTIVE,
@@ -175,7 +171,6 @@ def main() -> None:
                 )
                 match_rev.run()
 
-                # Combine: fwd has cms[i] as side 0; rev has cms[i] as side 1
                 wins_a = match_fwd.wins[0] + match_rev.wins[1]
                 wins_b = match_fwd.wins[1] + match_rev.wins[0]
                 total = wins_a + wins_b
@@ -197,7 +192,6 @@ def main() -> None:
         print(f"  Epoch {epoch + 1:2d}/{args.epochs}: {top_str}  ({elapsed:.1f}s)")
         print(f"    teambuild: {times_str}")
 
-    # Final standings
     elapsed = time.perf_counter() - start
     sorted_names = sorted(names, key=lambda x: elos[x], reverse=True)
 

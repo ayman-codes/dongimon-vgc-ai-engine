@@ -12,25 +12,25 @@ Attributes:
 """
 
 TYPE_NAMES: list[str] = [
-    "normal",  # 0 = NORMAL
-    "fire",  # 1 = FIRE
-    "water",  # 2 = WATER
-    "electric",  # 3 = ELECTRIC
-    "grass",  # 4 = GRASS
-    "ice",  # 5 = ICE
-    "fighting",  # 6 = FIGHT
-    "poison",  # 7 = POISON
-    "ground",  # 8 = GROUND
-    "flying",  # 9 = FLYING
-    "psychic",  # 10 = PSYCHIC
-    "bug",  # 11 = BUG
-    "rock",  # 12 = ROCK
-    "ghost",  # 13 = GHOST
-    "dragon",  # 14 = DRAGON
-    "dark",  # 15 = DARK
-    "steel",  # 16 = STEEL
-    "fairy",  # 17 = FAIRY
-    "typeless",  # 18 = TYPELESS
+    "normal",
+    "fire",
+    "water",
+    "electric",
+    "grass",
+    "ice",
+    "fighting",
+    "poison",
+    "ground",
+    "flying",
+    "psychic",
+    "bug",
+    "rock",
+    "ghost",
+    "dragon",
+    "dark",
+    "steel",
+    "fairy",
+    "typeless",
 ]
 
 VGC2_ENUM_MAP: dict[str, int] = {name: idx for idx, name in enumerate(TYPE_NAMES)}

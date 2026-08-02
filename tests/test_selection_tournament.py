@@ -72,7 +72,6 @@ class TestGenerateTeamCombinations:
         combos = generate_team_combinations(team, 2)
         assert len(combos) == 15
         assert all(len(c) == 2 for c in combos)
-        # All combinations should be unique
         assert len(set(combos)) == 15
 
     def test_no_duplicates(self):

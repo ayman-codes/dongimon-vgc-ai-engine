@@ -28,7 +28,6 @@ def _make_mock_pkm(name="MockMon", hp=200, types=None, atk=100, spa=100, spe=100
     mock = MagicMock()
     mock.hp = hp
     mock.types = types
-    # Use real dicts not MagicMock for stats access
     constants = MagicMock()
     constants.stats = {Stat.MAX_HP: hp, Stat.ATTACK: atk, Stat.DEFENSE: 80,
                        Stat.SPECIAL_ATTACK: spa, Stat.SPECIAL_DEFENSE: 80, Stat.SPEED: spe}

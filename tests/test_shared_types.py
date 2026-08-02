@@ -67,9 +67,9 @@ class TestTypeEffectiveness:
 
     def test_multiple_defender_types(self) -> None:
         """Combined effectiveness multiplies correctly for dual-type defenders."""
-        assert type_effectiveness("fighting", ["normal", "dark"]) == 4.0  # 2.0 * 2.0
-        assert type_effectiveness("ground", ["electric", "steel"]) == 4.0  # 2.0 * 2.0
-        assert type_effectiveness("fire", ["grass", "ice"]) == 4.0  # 2.0 * 2.0
+        assert type_effectiveness("fighting", ["normal", "dark"]) == 4.0
+        assert type_effectiveness("ground", ["electric", "steel"]) == 4.0
+        assert type_effectiveness("fire", ["grass", "ice"]) == 4.0
 
 
 class TestImmunity:

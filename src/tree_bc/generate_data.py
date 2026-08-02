@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -152,6 +153,11 @@ def run_pipeline(
     Runs self-play battles with weighted expert selection, recording
     per-turn state-action-outcome tuples to JSONL with checkpointing.
 
+    The global numpy and stdlib RNGs are seeded with ``seed`` so expert
+    fallbacks (which draw from module-level RNGs) are reproducible, and
+    expert commands that fall outside the valid-action mask are repaired
+    to a legal action so every recorded training label is usable.
+
     Args:
         n_battles: Number of battles to generate.
         seed: Master RNG seed.
@@ -162,6 +168,9 @@ def run_pipeline(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
+
+    np.random.seed(seed)
+    random.seed(seed)
 
     params = BattleRuleParam()
     experts = _load_expert_policies()
@@ -255,6 +264,11 @@ def run_pipeline(
             state_vec_b = encode_state(sv_b)
             action_idx_b = encode_action(cmd_b)
             valid_actions_b = get_valid_actions(sv_b)
+
+            if action_idx_a not in valid_actions_a and valid_actions_a:
+                action_idx_a = valid_actions_a[0]
+            if action_idx_b not in valid_actions_b and valid_actions_b:
+                action_idx_b = valid_actions_b[0]
 
             battle_records.append({
                 "battle_id": battle_idx,

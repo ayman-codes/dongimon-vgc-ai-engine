@@ -52,7 +52,6 @@ class TestCalculateStatCompatibility:
         species = _make_dummy_species("TestMon", atk=130, spe=100, spa=50)
         evs = (0, 252, 0, 0, 0, 252)
         score = calculate_stat_compatibility(species, evs)
-        # atk(252)*1.0 + spe(252)*0.5 + hp(0)*0.25 = 252 + 126 + 0 = 378
         assert score == pytest.approx(378.0)
 
     def test_zero_evs_returns_zero(self):
@@ -75,7 +74,6 @@ class TestCalculateStatCompatibility:
         species = _make_dummy_species("SpDefMon", atk=130, spd=110, spe=50)
         evs = (0, 252, 0, 0, 252, 0)
         score = calculate_stat_compatibility(species, evs)
-        # atk(252)*1.0 + spd(252)*0.5 + hp(0)*0.25 = 378
         assert score == pytest.approx(378.0)
 
     def test_deterministic_output(self):
