@@ -13,7 +13,7 @@ every competitor is registered directly via ``CompetitorManager``.
 
 The field is six competitors so the default ELO pairing never leaves an
 agent idle: Dongimon, JJJ, minimon, caaaden, Greedy (vgc2 built-ins), and
-TreeBC (XGBoost behavior-cloning battle policy).
+peach (submission battle policy).
 
 Usage:
     uv run python scripts/championship_track.py --epochs=100 --n-battles=3
@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -45,7 +46,6 @@ MAX_PKM_MOVES = 4
 N_ACTIVE = 2
 ELO_WEIGHT = 0.99
 TIME_WEIGHT = 0.01
-BC_MODEL_PATH = Path(__file__).resolve().parent.parent / "src" / "models" / "bc_xgboost_model.joblib"
 
 
 class GreedyCompetitor(Competitor):  # type: ignore[misc]
@@ -103,27 +103,27 @@ class GreedyCompetitor(Competitor):  # type: ignore[misc]
         return self.__team_build_policy
 
 
-class TreeBCCompetitor(Competitor):  # type: ignore[misc]
-    """Competitor using the XGBoost behavior-cloning battle policy.
+class PeachCompetitor(Competitor):  # type: ignore[misc]
+    """Competitor wrapping the peach submission battle policy.
 
-    The battle policy is ``TreeBCBattlePolicy`` (valid-action-masked
-    inference over the trained XGBoost joint-action model); selection and
-    teambuild use the vgc2 random policies.
+    Loads the peach competitor from the competition submissions
+    directory; selection and teambuild fall back to the vgc2 random
+    policies when the submission does not provide them.
     """
 
-    def __init__(self, model_path: Path, name: str = "TreeBC") -> None:
-        """Initialize the TreeBC competitor.
+    def __init__(self, name: str = "peach") -> None:
+        """Initialize the peach competitor.
 
         Args:
-            model_path: Path to the joblib bundle for the BC model.
             name: Display name used in rankings.
         """
-        from PPO_trainers.tree_bc_policy.policy import TreeBCBattlePolicy
+        from competitors.competitor_peach import PeachCompetitor as _PeachSubmission
 
         self.__name = name
-        self.__battle_policy = TreeBCBattlePolicy(model_path)
-        self.__selection_policy = RandomSelectionPolicy()
-        self.__team_build_policy = RandomTeamBuildPolicy()
+        inner = _PeachSubmission()
+        self.__battle_policy = getattr(inner, "battlepolicy", None) or GreedyBattlePolicy()
+        self.__selection_policy = getattr(inner, "selectionpolicy", None) or RandomSelectionPolicy()
+        self.__team_build_policy = getattr(inner, "teambuildpolicy", None) or RandomTeamBuildPolicy()
 
     @property
     def name(self) -> str:
@@ -139,7 +139,7 @@ class TreeBCCompetitor(Competitor):  # type: ignore[misc]
         """Return the battle policy instance.
 
         Returns:
-            The TreeBC behavior-cloning battle policy.
+            The peach submission battle policy.
         """
         return self.__battle_policy
 
@@ -148,7 +148,7 @@ class TreeBCCompetitor(Competitor):  # type: ignore[misc]
         """Return the selection policy instance.
 
         Returns:
-            The vgc2 random selection policy.
+            The vgc2 random selection policy or the submission's.
         """
         return self.__selection_policy
 
@@ -157,7 +157,7 @@ class TreeBCCompetitor(Competitor):  # type: ignore[misc]
         """Return the teambuild policy instance.
 
         Returns:
-            The vgc2 random teambuild policy.
+            The vgc2 random teambuild policy or the submission's.
         """
         return self.__team_build_policy
 
@@ -182,16 +182,12 @@ def _print_roster(move_set: Any, roster: Any) -> None:
     print()
 
 
-def _build_competitors(model_path: Path) -> list[Competitor]:
+def _build_competitors() -> list[Competitor]:
     """Construct the six championship competitors.
 
     Dongimon uses the production pipeline (GreedyDongi battle policy plus
-    the tuned selection and teambuild policies); the four external bots
-    are imported from ``competitors/``; Greedy and TreeBC are local
-    wrappers.
-
-    Args:
-        model_path: Path to the TreeBC joblib bundle.
+    the tuned selection and teambuild policies); the external bots are
+    imported from ``competitors/``; Greedy is a local wrapper.
 
     Returns:
         List of the six competitors in registration order.
@@ -207,7 +203,7 @@ def _build_competitors(model_path: Path) -> list[Competitor]:
         minimon(),
         CaaadenCompetitor(),
         GreedyCompetitor(),
-        TreeBCCompetitor(model_path),
+        PeachCompetitor(),
     ]
 
 
@@ -226,13 +222,10 @@ def main() -> None:
                         help="Pairing strategy")
     parser.add_argument("--ranking-strategy", choices=RANKING_STRATEGY.keys(), default="overall",
                         help="Ranking strategy")
-    parser.add_argument("--tree-bc-model", type=Path, default=BC_MODEL_PATH, help="Path to the TreeBC joblib bundle")
     args = parser.parse_args()
 
-    if not args.tree_bc_model.exists():
-        print(f"ERROR: TreeBC model not found at {args.tree_bc_model}")
-        sys.exit(1)
-
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     rng = np.random.default_rng(args.seed)
     move_set = gen_move_set(args.n_moves, rng)
     roster = gen_pkm_roster(args.roster_size, move_set, args.max_pkm_moves, rng)
@@ -254,7 +247,7 @@ def main() -> None:
         ELO_WEIGHT,
         TIME_WEIGHT,
     )
-    for competitor in _build_competitors(args.tree_bc_model):
+    for competitor in _build_competitors():
         championship.register(CompetitorManager(competitor))
 
     championship.run()

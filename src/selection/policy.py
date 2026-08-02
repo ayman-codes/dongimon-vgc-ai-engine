@@ -20,11 +20,17 @@ import itertools
 from pathlib import Path
 from typing import Any
 
+from numpy.random import default_rng
 from vgc2.agent import SelectionPolicy
 from vgc2.agent.battle import GreedyBattlePolicy
-from vgc2.battle_engine import Team
+from vgc2.agent.selection import BasicSelectionPolicy
+from vgc2.battle_engine import BattleEngine, Team
+from vgc2.battle_engine.game_state import State
 from vgc2.battle_engine.modifiers import Category, Stat
+from vgc2.battle_engine.team import BattlingTeam
+from vgc2.battle_engine.view import StateView, TeamView
 
+from src.battle.greedy_dongi import GreedyDongiPolicy
 from src.config.loader import load_selection_synergy
 from src.config.models import SelectionSynergyWeights
 from src.selection.mp_scoring import load_mp_model, score_pair_mp, score_roster_mp
@@ -46,10 +52,9 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
     (mp_only) or validates via sub-tournament simulation (mp_sim).
     Returns best pair first (active) then remaining roster (reserve).
 
-    When the team is already final size (<= max_size), a fast analytical
-    pair-synergy path orders the active pair without MP or simulation.
-
-    Pair ranking: win rate, then pair damage proxy, then pair BST.
+    When the team is already final size (no subset to choose), the active
+    pair is ordered by the MP model (``_order_by_mp``), falling back to the
+    analytical pair-synergy path when opponent prediction fails.
 
     Selection modes:
         mp_only: MP model scoring for rosters and pairs (default, fastest).
@@ -62,6 +67,7 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         synergy_weights: SelectionSynergyWeights | None = None,
         selection_mode: str = "mp_only",
         mp_model_path: Path | None = None,
+        lead_battles: int = 12,
     ) -> None:
         """Initialize the selection policy.
 
@@ -72,6 +78,8 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
             selection_mode: One of "mp_only" (default) or "mp_sim".
             mp_model_path: Path to the MP XGBoost model. Uses default
                 champion model if None.
+            lead_battles: Battles per (pair, order) during the offline
+                empirical lead resolution (size-4 ordering).
 
         Raises:
             ValueError: If selection_mode is not recognized.
@@ -88,6 +96,9 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         self._synergy = synergy_weights or load_selection_synergy()
         self._mode = selection_mode
         self._mp_model: Any = load_mp_model(mp_model_path)
+        self._lead_cache: dict[tuple[Any, ...], list[int]] = {}
+        self._lead_battles = lead_battles
+        self._lead_policy = GreedyDongiPolicy()
 
     def decision(self, teams: tuple[Team, Team], max_size: int) -> list[int]:
         """Select the best roster ordered as best active pair then reserves.
@@ -113,7 +124,10 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
             raise RuntimeError("selection.decision: opponent team view has zero members")
 
         if len(my_full_team.members) <= max_size:
-            return self._order_by_pair_synergy(my_full_team, opp_views, max_size)
+            try:
+                return self._order_by_mp(my_full_team, opp_views, max_size)
+            except Exception:
+                return self._order_by_pair_synergy(my_full_team, opp_views, max_size)
 
         predicted_builds: dict[Any, list[Any]] = {}
         for opp_view in opp_views:
@@ -339,6 +353,15 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
         Raises:
             RuntimeError: If no candidate pairs or opponent predictions fail.
         """
+        cache_key = (
+            tuple(m.species.id for m in my_full_team.members),
+            tuple(sorted(v.species.id for v in opp_views)),
+            max_size,
+        )
+        cached = self._lead_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         predicted_builds: dict[Any, list[Any]] = {}
         for opp_view in opp_views:
             builds = predict_opponent_builds(
@@ -375,13 +398,113 @@ class DongimonSelectionPolicy(SelectionPolicy):  # type: ignore[misc]
             scored.append((pair_score, my_pair))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        best_pair = scored[0][1]
+        best_order = self._resolve_lead_order(my_full_team, opp_views, predicted_builds, scored)
 
-        ordered: list[int] = [int(i) for i in best_pair]
+        ordered: list[int] = [int(i) for i in best_order]
         for idx in range(len(my_full_team.members)):
             if idx not in ordered:
                 ordered.append(idx)
-        return ordered[:max_size]
+        result = ordered[:max_size]
+        self._lead_cache[cache_key] = result
+        return result
+
+    def _resolve_lead_order(
+        self,
+        my_full_team: Team,
+        opp_views: list[Any],
+        predicted_builds: dict[Any, list[Any]],
+        scored_pairs: list[tuple[float, tuple[int, ...]]],
+    ) -> tuple[int, ...]:
+        """Resolve the best active pair and lead order empirically.
+
+        Battles every candidate pair in both slot orders against the
+        opponent's predicted active pair under the GreedyDongi pilot, and
+        returns the (pair, lead) with the highest win rate. This bypasses
+        the degenerate MP pair ranking (all pairs score equally) and the
+        analytical fast path, which both fail to rank pairs correctly.
+
+        Args:
+            my_full_team: Our full team (size <= max_size).
+            opp_views: Opponent PokemonView list.
+            predicted_builds: Dict mapping opponent views to predicted builds.
+            scored_pairs: MP-scored candidate pairs (sorted desc).
+
+        Returns:
+            The winning (pair, lead) order as a 2-tuple of indices.
+        """
+        best_wr = -1.0
+        best_order: tuple[int, ...] = ()
+        for _score, pair in scored_pairs:
+            for order in (pair, tuple(reversed(pair))):
+                wr = self._lead_win_rate(my_full_team, order, opp_views, predicted_builds)
+                if wr > best_wr:
+                    best_wr = wr
+                    best_order = order
+        if not best_order:
+            best_order = scored_pairs[0][1]
+        return best_order
+
+    def _lead_win_rate(
+        self,
+        my_full_team: Team,
+        order: tuple[int, ...],
+        opp_views: list[Any],
+        predicted_builds: dict[Any, list[Any]],
+    ) -> float:
+        """Win rate of one (pair, lead) order vs the opponent's predicted pair.
+
+        Runs ``_lead_battles`` seeded mirror battles between our ordered
+        pair (plus reserves) and the opponent's predicted team. The
+        opponent's active pair is chosen by ``BasicSelectionPolicy`` over
+        its predicted builds, giving a realistic reference opponent.
+
+        Args:
+            my_full_team: Our full team.
+            order: (lead, second) member indices.
+            opp_views: Opponent PokemonView list.
+            predicted_builds: Dict mapping opponent views to predicted builds.
+
+        Returns:
+            Win rate of our ordered pair in [0, 1].
+        """
+        lead, second = order
+        my_active = [my_full_team.members[lead], my_full_team.members[second]]
+        remaining = [i for i in range(len(my_full_team.members)) if i not in (lead, second)]
+        remaining.sort(key=lambda i: sum(my_full_team.members[i].stats[1:6]), reverse=True)
+        my_reserve = [my_full_team.members[i] for i in remaining[:2]]
+
+        opp_predicted = [predicted_builds[v][0] for v in opp_views if predicted_builds.get(v)]
+        opp_team = Team(members=opp_predicted)
+        opp_view = TeamView(opp_team)
+        opp_idx = list(BasicSelectionPolicy().decision((opp_team, opp_view), len(opp_predicted)))
+        opp_active = [opp_predicted[i] for i in opp_idx[:2] if i < len(opp_predicted)]
+        opp_reserve = [opp_predicted[i] for i in opp_idx[2:] if i < len(opp_predicted)]
+
+        dummy_my_view = TeamView(my_full_team)
+        dummy_opp_view = TeamView(Team(members=opp_active + opp_reserve))
+
+        wins = 0
+        for b_idx in range(self._lead_battles):
+            my_bt = BattlingTeam(active=list(my_active), reserve=list(my_reserve))
+            opp_bt = BattlingTeam(active=list(opp_active), reserve=list(opp_reserve))
+            rng = default_rng(b_idx)
+            rng_tuple = ((rng, rng), (rng, rng))
+            engine = BattleEngine(
+                State((my_bt, opp_bt)),
+                params=self.params,
+                acc_rng=rng_tuple,
+                eff_rng=rng_tuple,
+                sta_rng=rng_tuple,
+            )
+            while not engine.finished():
+                sv0 = StateView(engine.state, 0, (dummy_my_view, dummy_opp_view))
+                sv1 = StateView(engine.state, 1, (dummy_opp_view, dummy_my_view))
+                cmd0 = self._lead_policy.decision(sv0, dummy_opp_view)
+                cmd1 = self._lead_policy.decision(sv1, dummy_my_view)
+                engine.run_turn((cmd0, cmd1))
+            if engine.winning_side == 0:
+                wins += 1
+        return wins / max(self._lead_battles, 1)
 
     def _select_mp_only(
         self,

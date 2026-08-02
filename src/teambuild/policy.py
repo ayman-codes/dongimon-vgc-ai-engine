@@ -52,6 +52,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         self._config = config or teambuild_config()
         self._weights = custom_weights or load_teambuild_weights()
         self._ga_seed = ga_seed
+        self._cache: dict[tuple[Any, ...], list[Any]] = {}
 
     def decision(
         self,
@@ -73,6 +74,10 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
         Returns:
             TeamBuildCommand: (roster_id, evs, ivs, nature, move_indices) per Pokemon.
         """
+        cache_key = (tuple(id(s) for s in roster), max_team_size, max_pkm_moves, n_active)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
         rng = default_rng(self._ga_seed) if self._ga_seed is not None else default_rng()
         cfg = self._config
 
@@ -94,7 +99,9 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
 
         if not cfg.enable_evolution:
             top_species = sorted_species[:max_team_size]
-            return self._build_commands(top_species, roster, builds_cache, max_pkm_moves)
+            commands = self._build_commands(top_species, roster, builds_cache, max_pkm_moves)
+            self._cache[cache_key] = commands
+            return commands
 
         pool_size = max(max_team_size, int(len(sorted_species) * (1 - cfg.pruning_percentage)))
         pool_species = sorted_species[:pool_size]
@@ -155,6 +162,7 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
                     n_battles=cfg.battle_royale_battles,
                     max_time_sec=cfg.battle_royale_timeout_sec,
                     params=self.params,
+                    rng=rng,
                 )
             except (RuntimeError, ValueError, IndexError):
                 best_team_idx = top_teams[0]
@@ -162,7 +170,9 @@ class HesfTeamBuildPolicy(TeamBuildPolicy):  # type: ignore[misc]
             best_team_idx = top_teams[0]
 
         selected = [pool_species[i] for i in best_team_idx]
-        return self._build_commands(selected, roster, builds_cache, max_pkm_moves)
+        commands = self._build_commands(selected, roster, builds_cache, max_pkm_moves)
+        self._cache[cache_key] = commands
+        return commands
 
     def _build_commands(
         self,

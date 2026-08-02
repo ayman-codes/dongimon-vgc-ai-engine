@@ -24,6 +24,7 @@ def run_battle_royale(
     n_battles: int,
     max_time_sec: float,
     params: BattleRuleParam,
+    rng: Any | None = None,
 ) -> list[int]:
     """Run a round-robin battle tournament between the top teams.
 
@@ -40,6 +41,8 @@ def run_battle_royale(
         n_battles: Number of battles per matchup.
         max_time_sec: Maximum wall-clock time for the entire tournament.
         params: Battle rule parameters from the environment.
+        rng: Optional NumPy Generator for deterministic battles. Uses an
+            unseeded generator when None.
 
     Returns:
         The single best team as a list of species indices.
@@ -60,7 +63,7 @@ def run_battle_royale(
     if not hydrated:
         return top_teams[0] if top_teams else []
 
-    battle_rng = default_rng()
+    battle_rng = rng if rng is not None else default_rng()
     policy = GreedyBattlePolicy()
     n_teams = len(hydrated)
     wins = [0] * n_teams
