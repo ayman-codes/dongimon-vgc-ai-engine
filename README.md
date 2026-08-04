@@ -215,7 +215,7 @@ dongimon/
 | Battle Policy | Operational | 9-component heuristic with tuned weights, Choice Lock detection, board position lookahead |
 | Selection Policy | Operational | Analytical pair-synergy fast path (≤4) + sub-tournament full path (>4), Optuna-tuned |
 | Team Build Policy | Operational | 3-stage HESF pipeline with GA + battle royale, Optuna-tuned weights |
-| Optuna Tuning (BP) | In Progress | 14 battle weights tuned against JJJ/minimon/StocKarpador |
+| Optuna Tuning (BP) | Complete | 14 battle weights tuned against JJJ/minimon/StocKarpador |
 | Optuna Tuning (TB) | Complete | 12 teambuild weights, best trial #192 WR=0.8060 (400 trials) |
 | Optuna Tuning (Sel) | Complete | 5 selection synergy weights, best trial #211 WR=0.8083 (300 trials) |
 | Benchmark Suite | Complete | Isolated + full modes, CSV logging, MLflow tracking |
@@ -226,7 +226,7 @@ dongimon/
 ## Extending
 
 1. Subclass one of the ABCs in `vgc2.agent` (BattlePolicy, SelectionPolicy, TeamBuildPolicy)
-2. Wire your policy into `competitor.py` as a property
+2. Wire policy into `competitor.py` as a property
 3. Test with `uv run python scripts/championship_track.py`
 4. Benchmark with `uv run python scripts/benchmark.py`
 
