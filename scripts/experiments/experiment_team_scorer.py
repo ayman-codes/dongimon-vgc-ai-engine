@@ -52,6 +52,7 @@ from scripts.experiments.experiment_utils import (
 )
 from src.config.loader import load_battle_weights
 from src.data.features import compute_subteam_features
+from src.shared.s3 import sync_from_s3
 
 STAT_FEATURE_COUNT = 28
 NO_STAT_START = STAT_FEATURE_COUNT
@@ -391,12 +392,24 @@ def main() -> None:
         "--data-path", type=Path, default=None,
         help="Explicit JSONL path for --data=load (auto-discovers latest if omitted).",
     )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync experiment data from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="experiments/",
+        help="S3 key prefix to sync into data/experiments (default: experiments/)",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     meta_dir = Path("data/experiments/meta")
     meta_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.s3_bucket:
+        n = sync_from_s3(Path("data/experiments"), args.s3_prefix, args.s3_bucket)
+        print(f"Synced {n} files from s3://{args.s3_bucket}/{args.s3_prefix} to data/experiments")
 
     if args.policy == "greedy":
         labeling_policy: Any = GreedyBattlePolicy()

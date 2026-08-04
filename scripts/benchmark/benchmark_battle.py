@@ -33,6 +33,7 @@ from vgc2.battle_engine.view import StateView, TeamView
 from vgc2.competition.match import subteam
 from vgc2.util.generator import gen_team
 
+from src.shared.s3 import sync_from_s3
 from src.tuning.elo_rating import update_elo
 
 INITIAL_ELO = 1500.0
@@ -236,7 +237,20 @@ def main() -> None:
         help="Battles per head-to-head matchup per round (default: 20)",
     )
     parser.add_argument("--tag", type=str, default="", help="Optional run tag")
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync models from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="models/",
+        help="S3 key prefix to sync into src/models (default: models/)",
+    )
     args = parser.parse_args()
+
+    if args.s3_bucket:
+        models_dir = Path(__file__).parent.parent.parent / "src" / "models"
+        n = sync_from_s3(models_dir, args.s3_prefix, args.s3_bucket)
+        print(f"Synced {n} files from s3://{args.s3_bucket}/{args.s3_prefix} to {models_dir}")
 
     roster = _build_roster()
     player_names = [name for name, _ in roster]

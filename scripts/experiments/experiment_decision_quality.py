@@ -37,6 +37,7 @@ from competitor import DongimonCompetitor
 from scripts.experiments.experiment_utils import run_pair_battles
 from src.config.loader import load_battle_weights
 from src.data.features import compute_pairwise_features, compute_subteam_features
+from src.shared.s3 import sync_from_s3
 
 
 def _load_model(model_path: Path) -> dict[str, Any]:
@@ -577,11 +578,23 @@ def main() -> None:
         default=Path("data/experiments/decision_quality"),
         help="Output directory for results",
     )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync experiment data from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="experiments/",
+        help="S3 key prefix to sync into data/experiments (default: experiments/)",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     sub_tournament_battles = 3
+
+    if args.s3_bucket:
+        n = sync_from_s3(Path("data/experiments"), args.s3_prefix, args.s3_bucket)
+        print(f"Synced {n} files from s3://{args.s3_bucket}/{args.s3_prefix} to data/experiments")
 
     print("=" * 60)
     print("Decision Quality Experiment")

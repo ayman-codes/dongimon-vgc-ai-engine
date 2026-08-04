@@ -232,68 +232,25 @@ dongimon/
 
 ---
 
-## Performance History
+## Cloud Computing
 
-### v4 (pre-July 29): Teambuild ranked 4th--5th despite sophisticated pipeline
+This project required a wicked amount of computing to generate data for the Matchup Predictor; an XGBoost model to predict which pair would be the winners, the matchup predictor also used optuna trials to find the optimal hyperparameters. It beat even the simulation at a fraction of the speed.
 
-Dongimon's three-stage HESF teambuild produced teams that consistently underperformed against simpler competitors under both Greedy and Dongimon battle pilots.
+**Matchup Predictor (MP)** -- `src/data/generate.py` ran 24,000 pairings × 50 battles (1.2M battles total), each logged as 56 pairwise feature deltas (type advantages, stat diffs, coverage). `src/data/train.py` then tuned XGBoost, LightGBM, and Random Forest with **150 Optuna trials per model**, nested 5-fold CV, and a 70/15/15 stratified split. XGBoost won (test AUROC **0.79**), and its learned win-probability inference now replaces the damage-ratio matrix pre-filter in the Selection Policy (`src/selection/mp_scoring.py`) -- it evaluates every opponent pair combination and averages P(win), which is orders of magnitude faster than sub-tournament battle simulation while capturing the same matchup dynamics. A single Optuna run tuned the whole thing.
 
-| Benchmark | Dongimon Rank | Dongimon WR | vs JJJ | vs caaaden |
-|-----------|--------------|-------------|--------|------------|
-| Greedy BP (teambuild+selection only) | 4th | 0.423 | 0.453 | 0.277 |
-| Dongimon BP (full pipeline) | 5th | 0.253 | 0.090 | 0.177 |
+**Team Build Quality Scorer (TQS)** -- unfortunately this model proved to be unapplicable. It was an XGBoost regression model meant to augment the GA fitness function in teambuild, and in isolation it looked great (R² = 0.51 on quarantine data). But the decision-quality experiment proved it did NOT produce better teams than the heuristic (33.3% win rate standalone), and the extra ML complexity was never justified without proven downstream benefit. Despite that, I gained useful information to build the new Battle policy, Behavior cloning policy, PPO and others.
 
-**Diagnosis:** The archetype upgrade function (`get_optimal_archetype`) systematically favoured bulky-offense builds over speed-offense builds through three compounding biases:
+**Greedy_Dongi Battle Policy** -- the lessons from the TQS experiments fed directly into the new battle policy. `src/battle/greedy_dongi.py` copies Greedy's exhaustive enumeration and replaces its offense-only scoring with a **net-damage simulation** that includes opponent response resolved in the engine's priority+speed order. Scoring is lexicographic -- `(opponent KOs, -our KOs, damage dealt - damage taken)` -- with no tunable parameters, no normalization, no balancing. Strategic behavior (focus fire, target priority, protect timing) emerges from accurate simulation, never from weights.
 
-1. **Level mismatch (critical):** `build_coefficient_table` calculated damage using level-50 defenders against level-100 attackers, inflating damage estimates by ~2×. When every archetype appeared to OHKO every opponent, the `w_dmg` fitness component dominated and speed differentiation was washed out.
+**Behavior Cloning Policy** -- a supervised learner trained on expert demonstrations (state, joint action, outcome). The first TreeBC agent used a 301-feature encoder (`src/tree_bc/encoder.py`) over a 100-class joint action space, but mixed-expert labels averaged contradictions and it benchmarked dead last -- that failure defined the rules for everything after: single-expert labels, win rate as the only metric, and evaluate early.
 
-2. **Weight imbalance:** The bulky camp (`w_dmg=0.36` + `w_util=0.16` = 0.52) outweighed the speed camp (`w_speed=0.24` + `w_stat=0.16` = 0.40) by +30%. Jolly/Timid fast sweepers could never outscore Adamant/Modest bulky attackers in the archetype fitness evaluation.
+**PPO** -- the planned reinforcement-learning replacement. Neural BC on **GreedyDongi-only** data (120K win-filtered records) warm-starts a cleanRL-style PPO with logit masking (60-90% of the 100 actions are invalid per state), training against fixed opponents first then ELO-gated self-play. The tiny MLP is CPU-bound in the battle sim, so no GPU spend -- just pure core count.
 
-3. **GA fitness misalignment:** The genetic algorithm weighted defensive synergy and type coverage breadth (0.38 combined) more heavily than raw species viability (0.30). JJJ and caaaden succeed by prioritising individual species power (BST, offensive firepower) over team-level synergy.
+**All models and data were trained and generated on EC2 c7i.xlarge instance** (Sapphire Rapids, credits-funded), with Optuna study DBs downloaded back to the repo. The 14-weight battle tuning converged at 253 trials; teambuild ran 400 trials and selection 300. PPO long runs are planned for c7i.2xlarge spot.
 
-### v5 (July 29): Weight and coefficient fixes
+## Cloud Storage
 
-**Fixes applied** (6 files, ~25 lines changed):
-
-| File | Change | Reason |
-|------|--------|--------|
-| `src/teambuild/scoring.py` | `level_factor` 50→100 in `build_coefficient_table` | Match attacker level (lv100) for accurate damage scaling |
-| `src/shared/archetypes.py` | `level` 50→100 in `create_generic_build_for_species` | Defender stats match attacker level |
-| `src/teambuild/fitness.py` | `w_speed` 0.24→0.30, `w_util` 0.16→0.10, `w_dmg` 0.36→0.40, `w_stat` 0.16→0.12 | Shift archetype preference from bulky-utility (0.52) toward speed-damage |
-| `src/teambuild/operators.py` | `_VIABILITY_WEIGHT` 0.30→0.35, `_COVERAGE_WEIGHT` 0.22→0.18, `_DEFENCE_WEIGHT` 0.16→0.13 | Align GA with JJJ/caaaden (more BST, less synergy) |
-| `src/selection/prediction.py` | Filter builds with empty movesets in `predict_opponent_builds` | Prevent crashes when opponent species has non-standard movepools |
-| `scripts/benchmark/benchmark_team.py` | `_try_selection` wrapper for opponents (silent fallback); `_safe_selection` for Dongimon (loud failure) | Isolate Dongimon failures; opponent failures never terminate benchmark |
-
-### v5 Results (10 rounds × 30 battles, same seed)
-
-| Benchmark | Dongimon Rank | Dongimon WR | vs JJJ | vs caaaden | Change |
-|-----------|--------------|-------------|--------|------------|--------|
-| Greedy BP | **1st** (was 4th) | **0.666** (was 0.423) | 0.693 | 0.493 | **+57%** |
-| Dongimon BP | **2nd** (was 5th) | **0.618** (was 0.253) | 0.513 | 0.363 | **+144%** |
-
-**Head-to-head improvements:**
-
-- vs JJJ (Dongimon BP): 0.090 → **0.513** (no longer a significant loss)
-- vs caaaden (Greedy BP): 0.277 → **0.493** (near-even split)
-- vs minimon (Dongimon BP): 0.250 → **0.910** (significant win)
-
-**Teambuild team composition shifted:** Fast/Jolly/Naive/Hasty natures with 252 Spe EVs now appear regularly alongside the existing bulky ADAMANT/MODEST builds, giving the GA a genuine choice between speed and bulk.
-
-### v6 (July 29): Optuna-tuned Teambuild + Selection weights
-
-**Teambuild tuning** (`scripts/tune_teambuild.py`, 400 trials on EC2 c7i.xlarge):
-- Objective: mean win rate of Dongimon teams (Greedy pilot) vs 4 opponents × 10 fresh rosters × 15 battles per trial
-- Best trial #192: **WR = 0.8060**
-- Key insight: GA heavily favours `ga_viability` (0.446) and `ga_stat_diversity` (0.418) over type coverage/defence (≤0.04 each); archetype weights favour `w_stat_syn` (0.334) and `w_speed_syn` (0.224) — synergy-aware stat/speed upgrades dominate raw damage
-
-**Selection tuning** (`scripts/tune_selection.py`, 300 trials):
-- Objective: mean win rate with analytical pair-synergy fast path (Greedy pilot) vs 4 opponents × 10 fresh rosters × 15 battles per trial
-- Best trial #211: **WR = 0.8083**
-- Key insight: `w_speed` (0.364) and `w_matchup` (0.346) dominate; speed control and raw matchup damage matter far more than defensive complementarity (0.073) or coverage breadth (0.076)
-
-**Tuned weight files:**
-- `src/config/teambuild_weights.yaml` — 12 weights (6 archetype + 6 GA fitness)
-- `src/config/selection_synergy.yaml` — 5 term weights + fixed avg/worst blend (0.6/0.4)
+All data is synced and saved on AWS S3 and all code can call the data from the bucket.
 
 ---
 

@@ -26,6 +26,7 @@ from xgboost import XGBClassifier
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.shared.s3 import sync_from_s3
 from src.tree_bc.encoder import FEATURE_DIM
 
 EXPERIMENT_NAME = "bc_action_training"
@@ -464,7 +465,19 @@ def main() -> None:
         "--no-win-filter", action="store_true",
         help="Include losing records in training",
     )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync training data from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="data_BC/",
+        help="S3 key prefix to sync into --data-dir (default: data_BC/)",
+    )
     args = parser.parse_args()
+
+    if args.s3_bucket:
+        n = sync_from_s3(args.data_dir, args.s3_prefix, args.s3_bucket)
+        print(f"Synced {n} files from s3://{args.s3_bucket}/{args.s3_prefix} to {args.data_dir}")
 
     train(
         data_dir=args.data_dir,

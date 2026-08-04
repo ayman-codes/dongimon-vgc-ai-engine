@@ -12,12 +12,17 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
 from sklearn.metrics import roc_auc_score
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.shared.s3 import sync_from_s3
 
 RANDOM_STATE = 42
 
@@ -82,7 +87,25 @@ def main() -> None:
         "--model-dir", type=Path, default=Path("src/models"),
         help="Directory containing {name}_model.joblib files",
     )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync data and models from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="data_MP/",
+        help="S3 key prefix to sync into data/MP (default: data_MP/)",
+    )
+    parser.add_argument(
+        "--s3-model-prefix", type=str, default="models/",
+        help="S3 key prefix to sync into --model-dir (default: models/)",
+    )
     args = parser.parse_args()
+
+    if args.s3_bucket:
+        n_data = sync_from_s3(Path("data/MP"), args.s3_prefix, args.s3_bucket)
+        print(f"Synced {n_data} files from s3://{args.s3_bucket}/{args.s3_prefix} to data/MP")
+        n_models = sync_from_s3(args.model_dir, args.s3_model_prefix, args.s3_bucket)
+        print(f"Synced {n_models} files from s3://{args.s3_bucket}/{args.s3_model_prefix} to {args.model_dir}")
 
     print("=" * 60)
     print("MP Model — Quarantine Generalization Test")

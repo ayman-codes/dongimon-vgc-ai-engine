@@ -38,7 +38,12 @@ __pycache__
 
 # Mlflow
 mlruns/
+mlruns/*.json
 mlflow.db
+
+# Environment (secrets)
+.env
+.env.*
 
 # optuna
 optuna_study.db

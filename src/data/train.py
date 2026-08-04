@@ -29,6 +29,8 @@ from xgboost import XGBClassifier
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.shared.s3 import sync_from_s3
+
 EXPERIMENT_NAME = "mp_cv_training_v2"
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 CV_FOLDS = 5
@@ -280,6 +282,8 @@ def run_training(
     study_db: Path | None,
     study_prefix: str,
     resume: bool,
+    s3_bucket: str = "",
+    s3_prefix: str = "data_MP/",
 ) -> None:
     """Execute the full training pipeline for all three models.
 
@@ -287,6 +291,7 @@ def run_training(
     retrains best params on train set, logs to MLflow.
     If the study already has >= n_trials completed trials,
     Optuna is skipped and the best params are used directly.
+    If s3_bucket is set, missing data files are first pulled from S3.
 
     Args:
         data_dir: Directory containing mp_data_*.jsonl files.
@@ -295,6 +300,8 @@ def run_training(
         study_db: Path to Optuna study SQLite database.
         study_prefix: Prefix for Optuna study names.
         resume: If True, resume from existing study_db.
+        s3_bucket: S3 bucket to sync training data from (empty disables).
+        s3_prefix: S3 key prefix to sync into data_dir.
     """
     print("=" * 60)
     print("Matchup Predictor Model Training (5-fold CV)")
@@ -308,6 +315,10 @@ def run_training(
     if study_db:
         print(f"  study_db={study_db}")
     print("=" * 60)
+
+    if s3_bucket:
+        downloaded = sync_from_s3(data_dir, s3_prefix, s3_bucket)
+        print(f"\nSynced {downloaded} files from s3://{s3_bucket}/{s3_prefix} to {data_dir}")
 
     X, y, feature_names = load_jsonl(data_dir)
     X_train, y_train, X_val, y_val, X_test, y_test = split_data(X, y)
@@ -490,6 +501,14 @@ def main() -> None:
         "--resume", action="store_true",
         help="Resume from existing Optuna study (requires --study-db)",
     )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="",
+        help="S3 bucket to sync training data from (skipped if empty)",
+    )
+    parser.add_argument(
+        "--s3-prefix", type=str, default="data_MP/",
+        help="S3 key prefix to sync into --data-dir (default: data_MP/)",
+    )
     args = parser.parse_args()
 
     if args.resume and args.study_db is None:
@@ -503,6 +522,8 @@ def main() -> None:
         study_db=args.study_db,
         study_prefix=args.study_prefix,
         resume=args.resume,
+        s3_bucket=args.s3_bucket,
+        s3_prefix=args.s3_prefix,
     )
 
 
